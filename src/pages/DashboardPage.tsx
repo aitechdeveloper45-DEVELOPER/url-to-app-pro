@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import SigningKeyGenerator from "@/components/SigningKeyGenerator";
+import AdvancedSettings, { type AppSettings, defaultSettings } from "@/components/AdvancedSettings";
 
 type ConversionStatus = "pending" | "processing" | "complete" | "failed";
 type OutputFormat = "apk" | "aab";
@@ -51,6 +52,7 @@ const DashboardPage = () => {
   const [urlError, setUrlError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings>(defaultSettings);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -111,6 +113,7 @@ const DashboardPage = () => {
         body: {
           url,
           packageName: `app.lovable.${appName.replace(/[^a-z0-9]/gi, "")}`,
+          settings: appSettings,
         },
       });
 
@@ -332,6 +335,9 @@ const DashboardPage = () => {
                 </div>
               )}
             </div>
+
+            {/* Advanced Settings */}
+            <AdvancedSettings settings={appSettings} onChange={setAppSettings} disabled={converting} />
 
             <Button variant="hero" size="lg" className="w-full" disabled={converting}>
               {converting ? (
