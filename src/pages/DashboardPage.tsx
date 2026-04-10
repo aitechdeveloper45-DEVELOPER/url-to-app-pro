@@ -78,7 +78,7 @@ const DashboardPage = () => {
     if (urlError) setUrlError("");
   };
 
-  const handleConvert = (e: React.FormEvent) => {
+  const handleConvert = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim()) {
       setUrlError("Please enter a URL.");
@@ -93,34 +93,66 @@ const DashboardPage = () => {
     setConverting(true);
 
     const hostname = new URL(url).hostname;
+    const appName = hostname.replace(/^www\./, "").replace(/\.[^.]+$/, "");
     const newConversion: Conversion = {
       id: Date.now().toString(),
       url,
       format,
       status: "processing",
       createdAt: new Date().toISOString().split("T")[0],
-      appName: hostname.replace(/^www\./, ""),
+      appName,
     };
 
     setHistory((prev) => [newConversion, ...prev]);
 
-    // Simulate conversion — in production this would call a real backend API
-    setTimeout(() => {
+    try {
+      const response = await supabase.functions.invoke("generate-apk", {
+        body: {
+          url,
+          appName,
+          packageName: `com.webapp.${appName.replace(/[^a-z0-9]/g, "")}`,
+          format,
+        },
+      });
+
+      if (response.error) throw new Error(response.error.message);
+
+      // Store the blob for download
+      const blob = new Blob([response.data], { type: "application/zip" });
+      const downloadUrl = URL.createObjectURL(blob);
+
       setHistory((prev) =>
-        prev.map((c) => (c.id === newConversion.id ? { ...c, status: "complete" as ConversionStatus } : c))
+        prev.map((c) =>
+          c.id === newConversion.id
+            ? { ...c, status: "complete" as ConversionStatus, downloadUrl }
+            : c
+        )
       );
+      toast({ title: "Conversion complete!", description: `Your Android project is ready to download.` });
+    } catch (err: any) {
+      setHistory((prev) =>
+        prev.map((c) =>
+          c.id === newConversion.id ? { ...c, status: "failed" as ConversionStatus } : c
+        )
+      );
+      toast({ title: "Conversion failed", description: err.message || "Something went wrong.", variant: "destructive" });
+    } finally {
       setConverting(false);
       setUrl("");
       setKeystoreFile(null);
-      toast({ title: "Conversion complete!", description: `Your ${format.toUpperCase()} is ready to download.` });
-    }, 4000);
+    }
   };
 
-  const handleDownload = (conv: Conversion) => {
-    toast({
-      title: "Demo Mode",
-      description: "Real APK/AAB generation requires a conversion backend. This feature is coming soon!",
-    });
+  const handleDownload = (conv: Conversion & { downloadUrl?: string }) => {
+    if (conv.downloadUrl) {
+      const link = document.createElement("a");
+      link.href = conv.downloadUrl;
+      link.download = `${conv.appName}-android-project.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast({ title: "Downloaded!", description: "Open the project in Android Studio to build your APK/AAB." });
+    }
   };
 
   const handleRetry = (conv: Conversion) => {
