@@ -193,6 +193,44 @@ Generated: ${new Date().toISOString()}
           />
         </div>
         <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="font-body text-sm">Key Password</Label>
+            <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={handleAutoGeneratePasswords}>
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Auto-generate
+            </Button>
+          </div>
+          <Input
+            type="password"
+            value={keystoreInfo.keyPassword}
+            onChange={(e) => updateField("keyPassword", e.target.value)}
+            className="bg-muted border-border"
+            placeholder="Enter key password"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="font-body text-sm">Store Password</Label>
+          <Input
+            type="password"
+            value={keystoreInfo.storePassword}
+            onChange={(e) => updateField("storePassword", e.target.value)}
+            className="bg-muted border-border"
+            placeholder="Enter store password"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="font-body text-sm">Validity (Years)</Label>
+          <Input
+            type="number"
+            min={1}
+            max={100}
+            value={keystoreInfo.validityYears}
+            onChange={(e) => updateField("validityYears", e.target.value)}
+            className="bg-muted border-border"
+            placeholder="25"
+          />
+        </div>
+        <div className="space-y-2">
           <Label className="font-body text-sm">Your Name (CN)</Label>
           <Input
             value={keystoreInfo.cn}
