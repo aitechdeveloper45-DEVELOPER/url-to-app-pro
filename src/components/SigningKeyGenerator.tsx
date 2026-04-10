@@ -288,7 +288,7 @@ Generated: ${new Date().toISOString()}
       </div>
 
       {!generated ? (
-        <Button variant="hero" className="w-full" onClick={handleGenerate} disabled={generating || !keystoreInfo.alias.trim()}>
+        <Button variant="hero" className="w-full" onClick={handleGenerate} disabled={generating || !keystoreInfo.alias.trim() || !keystoreInfo.keyPassword || !keystoreInfo.storePassword}>
           {generating ? (
             <>
               <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
