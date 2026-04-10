@@ -162,7 +162,10 @@ Generated: ${new Date().toISOString()}
   };
 
   const updateField = (field: keyof KeystoreInfo, value: string) => {
-    setKeystoreInfo((prev) => ({ ...prev, [field]: value }));
+    setKeystoreInfo((prev) => ({
+      ...prev,
+      [field]: field === "validityYears" ? parseInt(value) || 1 : value,
+    }));
     if (generated) setGenerated(false);
   };
 
