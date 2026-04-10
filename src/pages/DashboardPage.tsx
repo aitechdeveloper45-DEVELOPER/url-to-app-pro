@@ -23,6 +23,7 @@ interface Conversion {
   status: ConversionStatus;
   createdAt: string;
   appName: string;
+  downloadUrl?: string;
 }
 
 const statusConfig: Record<ConversionStatus, { icon: typeof CheckCircle2; label: string; className: string }> = {
@@ -106,18 +107,24 @@ const DashboardPage = () => {
     setHistory((prev) => [newConversion, ...prev]);
 
     try {
+      const { data: generatedKeyData } = await supabase.functions.invoke("generate-signing-key");
       const response = await supabase.functions.invoke("generate-apk", {
         body: {
           url,
-          appName,
-          packageName: `com.webapp.${appName.replace(/[^a-z0-9]/g, "")}`,
+          packageName: `app.lovable.${appName.replace(/[^a-z0-9]/gi, "")}`,
           format,
+          keyAlias: generatedKeyData?.alias,
+          keyPassword: generatedKeyData?.keyPassword,
+          storePassword: generatedKeyData?.storePassword,
+          fullName: generatedKeyData?.cn,
+          organizationalUnit: generatedKeyData?.ou,
+          organization: generatedKeyData?.o,
+          countryCode: generatedKeyData?.c,
         },
       });
 
       if (response.error) throw new Error(response.error.message);
 
-      // Store the blob for download
       const blob = new Blob([response.data], { type: "application/zip" });
       const downloadUrl = URL.createObjectURL(blob);
 
@@ -128,14 +135,14 @@ const DashboardPage = () => {
             : c
         )
       );
-      toast({ title: "Conversion complete!", description: `Your Android project is ready to download.` });
+      toast({ title: "Build complete!", description: "Your APK/AAB package is ready to download." });
     } catch (err: any) {
       setHistory((prev) =>
         prev.map((c) =>
           c.id === newConversion.id ? { ...c, status: "failed" as ConversionStatus } : c
         )
       );
-      toast({ title: "Conversion failed", description: err.message || "Something went wrong.", variant: "destructive" });
+      toast({ title: "Build failed", description: err.message || "Something went wrong.", variant: "destructive" });
     } finally {
       setConverting(false);
       setUrl("");
@@ -143,15 +150,15 @@ const DashboardPage = () => {
     }
   };
 
-  const handleDownload = (conv: Conversion & { downloadUrl?: string }) => {
+  const handleDownload = (conv: Conversion) => {
     if (conv.downloadUrl) {
       const link = document.createElement("a");
       link.href = conv.downloadUrl;
-      link.download = `${conv.appName}-android-project.zip`;
+      link.download = `${conv.appName}-android-build.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      toast({ title: "Downloaded!", description: "Open the project in Android Studio to build your APK/AAB." });
+      toast({ title: "Downloaded!", description: "Your build package contains the generated APK/AAB output from the cloud builder." });
     }
   };
 
@@ -223,7 +230,7 @@ const DashboardPage = () => {
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
           <h1 className="font-heading text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground font-body mt-1">Convert web apps to native Android packages.</p>
+          <p className="text-muted-foreground font-body mt-1">Convert web apps into cloud-built Android packages for APK and AAB delivery.</p>
         </motion.div>
 
         {/* Conversion Form */}
