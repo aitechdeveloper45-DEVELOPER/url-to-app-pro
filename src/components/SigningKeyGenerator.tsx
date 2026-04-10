@@ -10,6 +10,7 @@ interface KeystoreInfo {
   alias: string;
   keyPassword: string;
   storePassword: string;
+  validityYears: number;
   cn: string;
   ou: string;
   o: string;
