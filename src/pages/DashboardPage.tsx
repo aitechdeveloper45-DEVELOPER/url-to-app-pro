@@ -107,25 +107,18 @@ const DashboardPage = () => {
     setHistory((prev) => [newConversion, ...prev]);
 
     try {
-      const { data: generatedKeyData } = await supabase.functions.invoke("generate-signing-key");
       const response = await supabase.functions.invoke("generate-apk", {
         body: {
           url,
           packageName: `app.lovable.${appName.replace(/[^a-z0-9]/gi, "")}`,
-          format,
-          keyAlias: generatedKeyData?.alias,
-          keyPassword: generatedKeyData?.keyPassword,
-          storePassword: generatedKeyData?.storePassword,
-          fullName: generatedKeyData?.cn,
-          organizationalUnit: generatedKeyData?.ou,
-          organization: generatedKeyData?.o,
-          countryCode: generatedKeyData?.c,
         },
       });
 
       if (response.error) throw new Error(response.error.message);
 
-      const blob = new Blob([response.data], { type: "application/zip" });
+      const blob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], { type: "application/zip" });
       const downloadUrl = URL.createObjectURL(blob);
 
       setHistory((prev) =>
@@ -271,40 +264,12 @@ const DashboardPage = () => {
             </div>
 
             <div className="space-y-2">
-              <Label className="font-body text-sm">Output Format</Label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setFormat("apk")}
-                  disabled={converting}
-                  className={`flex items-center justify-center gap-3 p-4 rounded-xl border transition-all ${
-                    format === "apk"
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-muted hover:border-primary/30"
-                  }`}
-                >
-                  <Smartphone className={`h-5 w-5 ${format === "apk" ? "text-primary" : "text-muted-foreground"}`} />
-                  <div className="text-left">
-                    <p className={`font-semibold text-sm ${format === "apk" ? "text-foreground" : "text-muted-foreground"}`}>APK</p>
-                    <p className="text-xs text-muted-foreground">Direct install</p>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormat("aab")}
-                  disabled={converting}
-                  className={`flex items-center justify-center gap-3 p-4 rounded-xl border transition-all ${
-                    format === "aab"
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-muted hover:border-primary/30"
-                  }`}
-                >
-                  <Download className={`h-5 w-5 ${format === "aab" ? "text-primary" : "text-muted-foreground"}`} />
-                  <div className="text-left">
-                    <p className={`font-semibold text-sm ${format === "aab" ? "text-foreground" : "text-muted-foreground"}`}>AAB</p>
-                    <p className="text-xs text-muted-foreground">Play Store</p>
-                  </div>
-                </button>
+              <Label className="font-body text-sm">Build Output</Label>
+              <div className="rounded-xl border border-border bg-muted/50 p-4">
+                <p className="text-sm font-semibold font-body">APK + AAB package</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Each build returns a ZIP package containing the generated Android output files.
+                </p>
               </div>
             </div>
 
@@ -362,7 +327,7 @@ const DashboardPage = () => {
                     <span className="text-primary">browse</span>
                   </p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    Leave empty to use debug signing key
+                    Cloud builds currently create their own signing setup for the generated package.
                   </p>
                 </div>
               )}
@@ -375,10 +340,10 @@ const DashboardPage = () => {
                   Converting...
                 </>
               ) : (
-                <>
-                  Start Conversion
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </>
+                  <>
+                    Build APK + AAB
+                    <ArrowRight className="ml-1 h-4 w-4" />
+                  </>
               )}
             </Button>
           </form>
