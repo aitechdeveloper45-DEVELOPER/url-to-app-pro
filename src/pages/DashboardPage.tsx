@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Globe,
   Smartphone,
@@ -13,8 +13,9 @@ import {
   ArrowRight,
   LogOut,
   Plus,
-  Key,
   FileDown,
+  X,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,30 +36,9 @@ interface Conversion {
 }
 
 const mockHistory: Conversion[] = [
-  {
-    id: "1",
-    url: "https://my-portfolio.dev",
-    format: "apk",
-    status: "complete",
-    createdAt: "2026-04-09",
-    appName: "My Portfolio",
-  },
-  {
-    id: "2",
-    url: "https://todo-app.vercel.app",
-    format: "aab",
-    status: "complete",
-    createdAt: "2026-04-08",
-    appName: "Todo App",
-  },
-  {
-    id: "3",
-    url: "https://shop.example.com",
-    format: "apk",
-    status: "failed",
-    createdAt: "2026-04-07",
-    appName: "E-Shop",
-  },
+  { id: "1", url: "https://my-portfolio.dev", format: "apk", status: "complete", createdAt: "2026-04-09", appName: "My Portfolio" },
+  { id: "2", url: "https://todo-app.vercel.app", format: "aab", status: "complete", createdAt: "2026-04-08", appName: "Todo App" },
+  { id: "3", url: "https://shop.example.com", format: "apk", status: "failed", createdAt: "2026-04-07", appName: "E-Shop" },
 ];
 
 const statusConfig: Record<ConversionStatus, { icon: typeof CheckCircle2; label: string; className: string }> = {
@@ -68,38 +48,133 @@ const statusConfig: Record<ConversionStatus, { icon: typeof CheckCircle2; label:
   failed: { icon: XCircle, label: "Failed", className: "bg-destructive/10 text-destructive border-destructive/20" },
 };
 
+const isValidUrl = (str: string): boolean => {
+  try {
+    const url = new URL(str);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+};
+
 const DashboardPage = () => {
   const [url, setUrl] = useState("");
   const [format, setFormat] = useState<OutputFormat>("apk");
   const [converting, setConverting] = useState(false);
   const [history, setHistory] = useState<Conversion[]>(mockHistory);
+  const [keystoreFile, setKeystoreFile] = useState<File | null>(null);
+  const [urlError, setUrlError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const navigate = useNavigate();
+
+  const handleUrlChange = (val: string) => {
+    setUrl(val);
+    if (urlError) setUrlError("");
+  };
 
   const handleConvert = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim()) return;
+    if (!url.trim()) {
+      setUrlError("Please enter a URL.");
+      return;
+    }
+    if (!isValidUrl(url)) {
+      setUrlError("Please enter a valid URL starting with http:// or https://");
+      return;
+    }
 
+    setUrlError("");
     setConverting(true);
+
+    const hostname = new URL(url).hostname;
     const newConversion: Conversion = {
       id: Date.now().toString(),
       url,
       format,
       status: "processing",
       createdAt: new Date().toISOString().split("T")[0],
-      appName: new URL(url).hostname,
+      appName: hostname.replace(/^www\./, ""),
     };
 
     setHistory((prev) => [newConversion, ...prev]);
 
-    // Simulate conversion
+    // Simulate conversion progress
     setTimeout(() => {
       setHistory((prev) =>
         prev.map((c) => (c.id === newConversion.id ? { ...c, status: "complete" as ConversionStatus } : c))
       );
       setConverting(false);
       setUrl("");
+      setKeystoreFile(null);
       toast({ title: "Conversion complete!", description: `Your ${format.toUpperCase()} is ready to download.` });
     }, 4000);
+  };
+
+  const handleDownload = (conv: Conversion) => {
+    // Simulate downloading a file
+    toast({ title: "Download started", description: `Downloading ${conv.appName}.${conv.format}...` });
+
+    // Create a mock blob download
+    const content = `Mock ${conv.format.toUpperCase()} file for ${conv.appName}\nURL: ${conv.url}\nGenerated: ${conv.createdAt}`;
+    const blob = new Blob([content], { type: "application/octet-stream" });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = `${conv.appName.toLowerCase().replace(/\s+/g, "-")}.${conv.format}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(downloadUrl);
+  };
+
+  const handleRetry = (conv: Conversion) => {
+    setHistory((prev) =>
+      prev.map((c) => (c.id === conv.id ? { ...c, status: "processing" as ConversionStatus } : c))
+    );
+    toast({ title: "Retrying conversion", description: `Re-processing ${conv.appName}...` });
+
+    setTimeout(() => {
+      setHistory((prev) =>
+        prev.map((c) => (c.id === conv.id ? { ...c, status: "complete" as ConversionStatus } : c))
+      );
+      toast({ title: "Conversion complete!", description: `${conv.appName}.${conv.format} is ready.` });
+    }, 3000);
+  };
+
+  const handleFileSelect = (file: File) => {
+    if (!file.name.endsWith(".keystore") && !file.name.endsWith(".jks")) {
+      toast({ title: "Invalid file", description: "Please upload a .keystore or .jks file.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Keystore file must be under 10MB.", variant: "destructive" });
+      return;
+    }
+    setKeystoreFile(file);
+    toast({ title: "Keystore uploaded", description: `${file.name} selected for signing.` });
+  };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFileSelect(file);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOver(false);
+  }, []);
+
+  const handleSignOut = () => {
+    toast({ title: "Signed out", description: "You have been logged out." });
+    navigate("/");
   };
 
   return (
@@ -107,11 +182,9 @@ const DashboardPage = () => {
       {/* Top bar */}
       <nav className="border-b border-border px-6 py-4 flex items-center justify-between">
         <Link to="/" className="font-heading text-xl font-bold text-gradient">Droidify</Link>
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/">
-            <LogOut className="h-4 w-4 mr-2" />
-            Sign Out
-          </Link>
+        <Button variant="ghost" size="sm" onClick={handleSignOut}>
+          <LogOut className="h-4 w-4 mr-2" />
+          Sign Out
         </Button>
       </nav>
 
@@ -144,13 +217,19 @@ const DashboardPage = () => {
                 <Input
                   type="url"
                   placeholder="https://your-webapp.com"
-                  className="pl-10 bg-muted border-border h-12"
+                  className={`pl-10 bg-muted border-border h-12 ${urlError ? "border-destructive" : ""}`}
                   value={url}
-                  onChange={(e) => setUrl(e.target.value)}
+                  onChange={(e) => handleUrlChange(e.target.value)}
                   required
                   disabled={converting}
                 />
               </div>
+              {urlError && (
+                <p className="text-sm text-destructive flex items-center gap-1 font-body">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {urlError}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -159,6 +238,7 @@ const DashboardPage = () => {
                 <button
                   type="button"
                   onClick={() => setFormat("apk")}
+                  disabled={converting}
                   className={`flex items-center justify-center gap-3 p-4 rounded-xl border transition-all ${
                     format === "apk"
                       ? "border-primary bg-primary/10"
@@ -167,15 +247,14 @@ const DashboardPage = () => {
                 >
                   <Smartphone className={`h-5 w-5 ${format === "apk" ? "text-primary" : "text-muted-foreground"}`} />
                   <div className="text-left">
-                    <p className={`font-semibold text-sm ${format === "apk" ? "text-foreground" : "text-muted-foreground"}`}>
-                      APK
-                    </p>
+                    <p className={`font-semibold text-sm ${format === "apk" ? "text-foreground" : "text-muted-foreground"}`}>APK</p>
                     <p className="text-xs text-muted-foreground">Direct install</p>
                   </div>
                 </button>
                 <button
                   type="button"
                   onClick={() => setFormat("aab")}
+                  disabled={converting}
                   className={`flex items-center justify-center gap-3 p-4 rounded-xl border transition-all ${
                     format === "aab"
                       ? "border-primary bg-primary/10"
@@ -184,9 +263,7 @@ const DashboardPage = () => {
                 >
                   <Download className={`h-5 w-5 ${format === "aab" ? "text-primary" : "text-muted-foreground"}`} />
                   <div className="text-left">
-                    <p className={`font-semibold text-sm ${format === "aab" ? "text-foreground" : "text-muted-foreground"}`}>
-                      AAB
-                    </p>
+                    <p className={`font-semibold text-sm ${format === "aab" ? "text-foreground" : "text-muted-foreground"}`}>AAB</p>
                     <p className="text-xs text-muted-foreground">Play Store</p>
                   </div>
                 </button>
@@ -195,16 +272,62 @@ const DashboardPage = () => {
 
             <div className="space-y-2">
               <Label className="font-body text-sm">Signing Key (optional)</Label>
-              <div className="border border-dashed border-border rounded-xl p-6 text-center bg-muted/50 hover:border-primary/30 transition-colors cursor-pointer">
-                <Upload className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground font-body">
-                  Drop your .keystore file here or{" "}
-                  <span className="text-primary">browse</span>
-                </p>
-                <p className="text-xs text-muted-foreground/60 mt-1">
-                  Leave empty to use debug signing key
-                </p>
-              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".keystore,.jks"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileSelect(file);
+                }}
+              />
+              {keystoreFile ? (
+                <div className="border border-primary/30 bg-primary/5 rounded-xl p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold font-body">{keystoreFile.name}</p>
+                      <p className="text-xs text-muted-foreground">{(keystoreFile.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => {
+                      setKeystoreFile(null);
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <div
+                  onClick={() => !converting && fileInputRef.current?.click()}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  className={`border border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+                    dragOver
+                      ? "border-primary bg-primary/10"
+                      : "border-border bg-muted/50 hover:border-primary/30"
+                  } ${converting ? "pointer-events-none opacity-50" : ""}`}
+                >
+                  <Upload className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-sm text-muted-foreground font-body">
+                    Drop your .keystore file here or{" "}
+                    <span className="text-primary">browse</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">
+                    Leave empty to use debug signing key
+                  </p>
+                </div>
+              )}
             </div>
 
             <Button variant="hero" size="lg" className="w-full" disabled={converting}>
@@ -234,56 +357,79 @@ const DashboardPage = () => {
               <Clock className="h-5 w-5 text-primary" />
             </div>
             <h2 className="font-heading text-xl font-semibold">Conversion History</h2>
+            {history.length > 0 && (
+              <span className="text-sm text-muted-foreground font-body ml-auto">{history.length} conversions</span>
+            )}
           </div>
 
-          <div className="space-y-3">
-            <AnimatePresence>
-              {history.map((conv, i) => {
-                const statusInfo = statusConfig[conv.status];
-                const StatusIcon = statusInfo.icon;
+          {history.length === 0 ? (
+            <div className="glass rounded-xl p-10 text-center">
+              <Globe className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+              <p className="text-muted-foreground font-body">No conversions yet. Enter a URL above to get started.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <AnimatePresence>
+                {history.map((conv, i) => {
+                  const statusInfo = statusConfig[conv.status];
+                  const StatusIcon = statusInfo.icon;
 
-                return (
-                  <motion.div
-                    key={conv.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                    className="glass rounded-xl p-5 flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center">
-                        <Globe className="h-5 w-5 text-muted-foreground" />
+                  return (
+                    <motion.div
+                      key={conv.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="glass rounded-xl p-5 flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center shrink-0">
+                          <Globe className="h-5 w-5 text-muted-foreground" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm font-body">{conv.appName}</p>
+                          <p className="text-xs text-muted-foreground truncate max-w-[200px] md:max-w-[350px]">
+                            {conv.url}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-semibold text-sm font-body">{conv.appName}</p>
-                        <p className="text-xs text-muted-foreground truncate max-w-[200px] md:max-w-[350px]">
-                          {conv.url}
-                        </p>
-                      </div>
-                    </div>
 
-                    <div className="flex items-center gap-3">
-                      <Badge variant="outline" className="uppercase text-xs font-mono">
-                        {conv.format}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={`${statusInfo.className} flex items-center gap-1`}
-                      >
-                        <StatusIcon className={`h-3 w-3 ${conv.status === "processing" ? "animate-spin" : ""}`} />
-                        {statusInfo.label}
-                      </Badge>
-                      {conv.status === "complete" && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <FileDown className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <Badge variant="outline" className="uppercase text-xs font-mono">
+                          {conv.format}
+                        </Badge>
+                        <Badge variant="outline" className={`${statusInfo.className} flex items-center gap-1`}>
+                          <StatusIcon className={`h-3 w-3 ${conv.status === "processing" ? "animate-spin" : ""}`} />
+                          {statusInfo.label}
+                        </Badge>
+                        {conv.status === "complete" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleDownload(conv)}
+                            title={`Download ${conv.appName}.${conv.format}`}
+                          >
+                            <FileDown className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {conv.status === "failed" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={() => handleRetry(conv)}
+                          >
+                            Retry
+                          </Button>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )}
         </motion.div>
       </div>
     </div>
