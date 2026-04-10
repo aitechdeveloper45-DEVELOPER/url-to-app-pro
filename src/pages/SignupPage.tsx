@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
-import { Mail, Lock, User, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const SignupPage = () => {
   const [name, setName] = useState("");
@@ -27,11 +28,20 @@ const SignupPage = () => {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      toast({ title: "Account created!", description: "Redirecting to dashboard..." });
-      navigate("/dashboard");
-    }, 1200);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name }, emailRedirectTo: window.location.origin },
+    });
+    setLoading(false);
+
+    if (error) {
+      toast({ title: "Signup failed", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    toast({ title: "Account created!", description: "Check your email to confirm, then sign in." });
+    navigate("/login");
   };
 
   return (
@@ -66,6 +76,7 @@ const SignupPage = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -82,6 +93,7 @@ const SignupPage = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -99,6 +111,7 @@ const SignupPage = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
+                  disabled={loading}
                 />
                 <button
                   type="button"
@@ -111,8 +124,17 @@ const SignupPage = () => {
             </div>
 
             <Button variant="hero" className="w-full" disabled={loading}>
-              {loading ? "Creating account..." : "Create Account"}
-              {!loading && <ArrowRight className="ml-1 h-4 w-4" />}
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating account...
+                </>
+              ) : (
+                <>
+                  Create Account
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </>
+              )}
             </Button>
           </form>
 

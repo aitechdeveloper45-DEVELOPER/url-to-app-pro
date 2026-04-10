@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
-import { Mail, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { Mail, Lock, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
@@ -22,11 +23,16 @@ const LoginPage = () => {
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      toast({ title: "Welcome back!", description: "Redirecting to dashboard..." });
-      navigate("/dashboard");
-    }, 1200);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+
+    if (error) {
+      toast({ title: "Login failed", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    toast({ title: "Welcome back!", description: "Redirecting to dashboard..." });
+    navigate("/dashboard");
   };
 
   return (
@@ -61,6 +67,7 @@ const LoginPage = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -77,6 +84,7 @@ const LoginPage = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  disabled={loading}
                 />
                 <button
                   type="button"
@@ -89,8 +97,17 @@ const LoginPage = () => {
             </div>
 
             <Button variant="hero" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
-              {!loading && <ArrowRight className="ml-1 h-4 w-4" />}
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                <>
+                  Sign In
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </>
+              )}
             </Button>
           </form>
 
