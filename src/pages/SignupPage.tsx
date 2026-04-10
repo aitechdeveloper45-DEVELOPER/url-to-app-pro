@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, User, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,14 +14,23 @@ const SignupPage = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      toast({ title: "Missing fields", description: "Please fill in all fields.", variant: "destructive" });
+      return;
+    }
+    if (password.length < 6) {
+      toast({ title: "Weak password", description: "Password must be at least 6 characters.", variant: "destructive" });
+      return;
+    }
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
       toast({ title: "Account created!", description: "Redirecting to dashboard..." });
-      window.location.href = "/dashboard";
+      navigate("/dashboard");
     }, 1200);
   };
 
@@ -89,6 +98,7 @@ const SignupPage = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  minLength={6}
                 />
                 <button
                   type="button"
