@@ -105,7 +105,7 @@ const SigningKeyGenerator = () => {
   const handleDownloadKeystore = () => {
     const info = keystoreInfo;
     const bytes = generateKeystoreBytes(info);
-    const blob = new Blob([bytes], { type: "application/x-java-keystore" });
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/x-java-keystore" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
