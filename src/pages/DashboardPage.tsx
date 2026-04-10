@@ -23,6 +23,7 @@ interface Conversion {
   status: ConversionStatus;
   createdAt: string;
   appName: string;
+  downloadUrl?: string;
 }
 
 const statusConfig: Record<ConversionStatus, { icon: typeof CheckCircle2; label: string; className: string }> = {
@@ -109,16 +110,15 @@ const DashboardPage = () => {
       const response = await supabase.functions.invoke("generate-apk", {
         body: {
           url,
-          appName,
-          packageName: `com.webapp.${appName.replace(/[^a-z0-9]/g, "")}`,
-          format,
+          packageName: `app.lovable.${appName.replace(/[^a-z0-9]/gi, "")}`,
         },
       });
 
       if (response.error) throw new Error(response.error.message);
 
-      // Store the blob for download
-      const blob = new Blob([response.data], { type: "application/zip" });
+      const blob = response.data instanceof Blob
+        ? response.data
+        : new Blob([response.data], { type: "application/zip" });
       const downloadUrl = URL.createObjectURL(blob);
 
       setHistory((prev) =>
@@ -128,14 +128,14 @@ const DashboardPage = () => {
             : c
         )
       );
-      toast({ title: "Conversion complete!", description: `Your Android project is ready to download.` });
+      toast({ title: "Build complete!", description: "Your APK/AAB package is ready to download." });
     } catch (err: any) {
       setHistory((prev) =>
         prev.map((c) =>
           c.id === newConversion.id ? { ...c, status: "failed" as ConversionStatus } : c
         )
       );
-      toast({ title: "Conversion failed", description: err.message || "Something went wrong.", variant: "destructive" });
+      toast({ title: "Build failed", description: err.message || "Something went wrong.", variant: "destructive" });
     } finally {
       setConverting(false);
       setUrl("");
@@ -143,15 +143,15 @@ const DashboardPage = () => {
     }
   };
 
-  const handleDownload = (conv: Conversion & { downloadUrl?: string }) => {
+  const handleDownload = (conv: Conversion) => {
     if (conv.downloadUrl) {
       const link = document.createElement("a");
       link.href = conv.downloadUrl;
-      link.download = `${conv.appName}-android-project.zip`;
+      link.download = `${conv.appName}-android-build.zip`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      toast({ title: "Downloaded!", description: "Open the project in Android Studio to build your APK/AAB." });
+      toast({ title: "Downloaded!", description: "Your build package contains the generated APK/AAB output from the cloud builder." });
     }
   };
 
@@ -223,7 +223,7 @@ const DashboardPage = () => {
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-10">
           <h1 className="font-heading text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground font-body mt-1">Convert web apps to native Android packages.</p>
+          <p className="text-muted-foreground font-body mt-1">Convert web apps into cloud-built Android packages for APK and AAB delivery.</p>
         </motion.div>
 
         {/* Conversion Form */}
@@ -264,40 +264,12 @@ const DashboardPage = () => {
             </div>
 
             <div className="space-y-2">
-              <Label className="font-body text-sm">Output Format</Label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setFormat("apk")}
-                  disabled={converting}
-                  className={`flex items-center justify-center gap-3 p-4 rounded-xl border transition-all ${
-                    format === "apk"
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-muted hover:border-primary/30"
-                  }`}
-                >
-                  <Smartphone className={`h-5 w-5 ${format === "apk" ? "text-primary" : "text-muted-foreground"}`} />
-                  <div className="text-left">
-                    <p className={`font-semibold text-sm ${format === "apk" ? "text-foreground" : "text-muted-foreground"}`}>APK</p>
-                    <p className="text-xs text-muted-foreground">Direct install</p>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormat("aab")}
-                  disabled={converting}
-                  className={`flex items-center justify-center gap-3 p-4 rounded-xl border transition-all ${
-                    format === "aab"
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-muted hover:border-primary/30"
-                  }`}
-                >
-                  <Download className={`h-5 w-5 ${format === "aab" ? "text-primary" : "text-muted-foreground"}`} />
-                  <div className="text-left">
-                    <p className={`font-semibold text-sm ${format === "aab" ? "text-foreground" : "text-muted-foreground"}`}>AAB</p>
-                    <p className="text-xs text-muted-foreground">Play Store</p>
-                  </div>
-                </button>
+              <Label className="font-body text-sm">Build Output</Label>
+              <div className="rounded-xl border border-border bg-muted/50 p-4">
+                <p className="text-sm font-semibold font-body">APK + AAB package</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Each build returns a ZIP package containing the generated Android output files.
+                </p>
               </div>
             </div>
 
@@ -355,7 +327,7 @@ const DashboardPage = () => {
                     <span className="text-primary">browse</span>
                   </p>
                   <p className="text-xs text-muted-foreground/60 mt-1">
-                    Leave empty to use debug signing key
+                    Cloud builds currently create their own signing setup for the generated package.
                   </p>
                 </div>
               )}
@@ -368,10 +340,10 @@ const DashboardPage = () => {
                   Converting...
                 </>
               ) : (
-                <>
-                  Start Conversion
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </>
+                  <>
+                    Build APK + AAB
+                    <ArrowRight className="ml-1 h-4 w-4" />
+                  </>
               )}
             </Button>
           </form>
