@@ -89,19 +89,24 @@ const SigningKeyGenerator = () => {
   });
 
   const handleGenerate = () => {
+    if (!keystoreInfo.keyPassword || !keystoreInfo.storePassword) {
+      toast({ title: "Missing passwords", description: "Please enter both key password and store password.", variant: "destructive" });
+      return;
+    }
     setGenerating(true);
-    const keyPass = generateRandomPassword();
-    const storePass = generateRandomPassword();
-    setKeystoreInfo((prev) => ({
-      ...prev,
-      keyPassword: keyPass,
-      storePassword: storePass,
-    }));
     setTimeout(() => {
       setGenerating(false);
       setGenerated(true);
       toast({ title: "Signing key generated!", description: "Download your keystore and save the passwords securely." });
     }, 1500);
+  };
+
+  const handleAutoGeneratePasswords = () => {
+    setKeystoreInfo((prev) => ({
+      ...prev,
+      keyPassword: generateRandomPassword(),
+      storePassword: generateRandomPassword(),
+    }));
   };
 
   const handleDownloadKeystore = () => {
