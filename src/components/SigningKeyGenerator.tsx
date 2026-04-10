@@ -132,6 +132,7 @@ Keystore File: ${keystoreInfo.alias}.keystore
 Key Alias: ${keystoreInfo.alias}
 Key Password: ${keystoreInfo.keyPassword}
 Store Password: ${keystoreInfo.storePassword}
+Validity: ${keystoreInfo.validityYears} years
 
 Distinguished Name:
   CN = ${keystoreInfo.cn}
