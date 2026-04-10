@@ -10,6 +10,7 @@ interface KeystoreInfo {
   alias: string;
   keyPassword: string;
   storePassword: string;
+  validityYears: number;
   cn: string;
   ou: string;
   o: string;
@@ -78,6 +79,7 @@ const SigningKeyGenerator = () => {
     alias: "my-app-key",
     keyPassword: "",
     storePassword: "",
+    validityYears: 25,
     cn: "Developer",
     ou: "Development",
     o: "My Company",
@@ -87,19 +89,24 @@ const SigningKeyGenerator = () => {
   });
 
   const handleGenerate = () => {
+    if (!keystoreInfo.keyPassword || !keystoreInfo.storePassword) {
+      toast({ title: "Missing passwords", description: "Please enter both key password and store password.", variant: "destructive" });
+      return;
+    }
     setGenerating(true);
-    const keyPass = generateRandomPassword();
-    const storePass = generateRandomPassword();
-    setKeystoreInfo((prev) => ({
-      ...prev,
-      keyPassword: keyPass,
-      storePassword: storePass,
-    }));
     setTimeout(() => {
       setGenerating(false);
       setGenerated(true);
       toast({ title: "Signing key generated!", description: "Download your keystore and save the passwords securely." });
     }, 1500);
+  };
+
+  const handleAutoGeneratePasswords = () => {
+    setKeystoreInfo((prev) => ({
+      ...prev,
+      keyPassword: generateRandomPassword(),
+      storePassword: generateRandomPassword(),
+    }));
   };
 
   const handleDownloadKeystore = () => {
@@ -125,6 +132,7 @@ Keystore File: ${keystoreInfo.alias}.keystore
 Key Alias: ${keystoreInfo.alias}
 Key Password: ${keystoreInfo.keyPassword}
 Store Password: ${keystoreInfo.storePassword}
+Validity: ${keystoreInfo.validityYears} years
 
 Distinguished Name:
   CN = ${keystoreInfo.cn}
@@ -154,7 +162,10 @@ Generated: ${new Date().toISOString()}
   };
 
   const updateField = (field: keyof KeystoreInfo, value: string) => {
-    setKeystoreInfo((prev) => ({ ...prev, [field]: value }));
+    setKeystoreInfo((prev) => ({
+      ...prev,
+      [field]: field === "validityYears" ? parseInt(value) || 1 : value,
+    }));
     if (generated) setGenerated(false);
   };
 
@@ -183,6 +194,44 @@ Generated: ${new Date().toISOString()}
             onChange={(e) => updateField("alias", e.target.value)}
             className="bg-muted border-border"
             placeholder="my-app-key"
+          />
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label className="font-body text-sm">Key Password</Label>
+            <Button variant="ghost" size="sm" className="h-6 text-xs px-2" onClick={handleAutoGeneratePasswords}>
+              <RefreshCw className="h-3 w-3 mr-1" />
+              Auto-generate
+            </Button>
+          </div>
+          <Input
+            type="password"
+            value={keystoreInfo.keyPassword}
+            onChange={(e) => updateField("keyPassword", e.target.value)}
+            className="bg-muted border-border"
+            placeholder="Enter key password"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="font-body text-sm">Store Password</Label>
+          <Input
+            type="password"
+            value={keystoreInfo.storePassword}
+            onChange={(e) => updateField("storePassword", e.target.value)}
+            className="bg-muted border-border"
+            placeholder="Enter store password"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="font-body text-sm">Validity (Years)</Label>
+          <Input
+            type="number"
+            min={1}
+            max={100}
+            value={keystoreInfo.validityYears}
+            onChange={(e) => updateField("validityYears", e.target.value)}
+            className="bg-muted border-border"
+            placeholder="25"
           />
         </div>
         <div className="space-y-2">
@@ -243,7 +292,7 @@ Generated: ${new Date().toISOString()}
       </div>
 
       {!generated ? (
-        <Button variant="hero" className="w-full" onClick={handleGenerate} disabled={generating || !keystoreInfo.alias.trim()}>
+        <Button variant="hero" className="w-full" onClick={handleGenerate} disabled={generating || !keystoreInfo.alias.trim() || !keystoreInfo.keyPassword || !keystoreInfo.storePassword}>
           {generating ? (
             <>
               <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
