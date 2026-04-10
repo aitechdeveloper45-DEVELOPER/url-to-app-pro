@@ -1,27 +1,17 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Globe,
-  Smartphone,
-  Download,
-  Upload,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  ArrowRight,
-  LogOut,
-  Plus,
-  FileDown,
-  X,
-  AlertCircle,
+  Globe, Smartphone, Download, Upload, Clock, CheckCircle2, XCircle,
+  Loader2, ArrowRight, LogOut, Plus, FileDown, X, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import SigningKeyGenerator from "@/components/SigningKeyGenerator";
 
 type ConversionStatus = "pending" | "processing" | "complete" | "failed";
 type OutputFormat = "apk" | "aab";
@@ -34,12 +24,6 @@ interface Conversion {
   createdAt: string;
   appName: string;
 }
-
-const mockHistory: Conversion[] = [
-  { id: "1", url: "https://my-portfolio.dev", format: "apk", status: "complete", createdAt: "2026-04-09", appName: "My Portfolio" },
-  { id: "2", url: "https://todo-app.vercel.app", format: "aab", status: "complete", createdAt: "2026-04-08", appName: "Todo App" },
-  { id: "3", url: "https://shop.example.com", format: "apk", status: "failed", createdAt: "2026-04-07", appName: "E-Shop" },
-];
 
 const statusConfig: Record<ConversionStatus, { icon: typeof CheckCircle2; label: string; className: string }> = {
   pending: { icon: Clock, label: "Pending", className: "bg-warning/10 text-warning border-warning/20" },
@@ -61,13 +45,33 @@ const DashboardPage = () => {
   const [url, setUrl] = useState("");
   const [format, setFormat] = useState<OutputFormat>("apk");
   const [converting, setConverting] = useState(false);
-  const [history, setHistory] = useState<Conversion[]>(mockHistory);
+  const [history, setHistory] = useState<Conversion[]>([]);
   const [keystoreFile, setKeystoreFile] = useState<File | null>(null);
   const [urlError, setUrlError] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/login");
+        return;
+      }
+      setUserEmail(session.user.email ?? null);
+    };
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) navigate("/login");
+      else setUserEmail(session.user.email ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
 
   const handleUrlChange = (val: string) => {
     setUrl(val);
@@ -100,7 +104,7 @@ const DashboardPage = () => {
 
     setHistory((prev) => [newConversion, ...prev]);
 
-    // Simulate conversion progress
+    // Simulate conversion — in production this would call a real backend API
     setTimeout(() => {
       setHistory((prev) =>
         prev.map((c) => (c.id === newConversion.id ? { ...c, status: "complete" as ConversionStatus } : c))
@@ -113,20 +117,10 @@ const DashboardPage = () => {
   };
 
   const handleDownload = (conv: Conversion) => {
-    // Simulate downloading a file
-    toast({ title: "Download started", description: `Downloading ${conv.appName}.${conv.format}...` });
-
-    // Create a mock blob download
-    const content = `Mock ${conv.format.toUpperCase()} file for ${conv.appName}\nURL: ${conv.url}\nGenerated: ${conv.createdAt}`;
-    const blob = new Blob([content], { type: "application/octet-stream" });
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = `${conv.appName.toLowerCase().replace(/\s+/g, "-")}.${conv.format}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(downloadUrl);
+    toast({
+      title: "Demo Mode",
+      description: "Real APK/AAB generation requires a conversion backend. This feature is coming soon!",
+    });
   };
 
   const handleRetry = (conv: Conversion) => {
@@ -161,6 +155,7 @@ const DashboardPage = () => {
     setDragOver(false);
     const file = e.dataTransfer.files[0];
     if (file) handleFileSelect(file);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -172,7 +167,8 @@ const DashboardPage = () => {
     setDragOver(false);
   }, []);
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
     toast({ title: "Signed out", description: "You have been logged out." });
     navigate("/");
   };
@@ -182,10 +178,13 @@ const DashboardPage = () => {
       {/* Top bar */}
       <nav className="border-b border-border px-6 py-4 flex items-center justify-between">
         <Link to="/" className="font-heading text-xl font-bold text-gradient">Droidify</Link>
-        <Button variant="ghost" size="sm" onClick={handleSignOut}>
-          <LogOut className="h-4 w-4 mr-2" />
-          Sign Out
-        </Button>
+        <div className="flex items-center gap-4">
+          {userEmail && <span className="text-sm text-muted-foreground font-body hidden sm:block">{userEmail}</span>}
+          <Button variant="ghost" size="sm" onClick={handleSignOut}>
+            <LogOut className="h-4 w-4 mr-2" />
+            Sign Out
+          </Button>
+        </div>
       </nav>
 
       <div className="max-w-5xl mx-auto px-6 py-10">
@@ -345,6 +344,9 @@ const DashboardPage = () => {
             </Button>
           </form>
         </motion.div>
+
+        {/* Signing Key Generator */}
+        <SigningKeyGenerator />
 
         {/* History */}
         <motion.div
