@@ -79,6 +79,7 @@ const SigningKeyGenerator = () => {
     alias: "my-app-key",
     keyPassword: "",
     storePassword: "",
+    validityYears: 25,
     cn: "Developer",
     ou: "Development",
     o: "My Company",
