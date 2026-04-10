@@ -40,8 +40,8 @@ const SignupPage = () => {
       return;
     }
 
-    toast({ title: "Account created!", description: "Check your email to confirm, then sign in." });
-    navigate("/login");
+    toast({ title: "Account created!", description: "You are now signed in." });
+    navigate("/dashboard");
   };
 
   return (
