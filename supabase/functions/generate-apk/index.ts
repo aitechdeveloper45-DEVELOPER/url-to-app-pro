@@ -154,6 +154,8 @@ Deno.serve(async (req) => {
       webManifestUrl: manifestUrl,
     };
 
+    console.log(`Starting build for ${host}, package: ${packageId}`);
+
     const response = await fetch(PWABUILDER_URL, {
       method: 'POST',
       headers: {
@@ -164,6 +166,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify(payload),
     });
 
+    console.log(`PWABuilder response status: ${response.status}`);
     const buffer = await response.arrayBuffer();
     if (!response.ok) {
       return new Response(JSON.stringify({ error: new TextDecoder().decode(buffer) }), {
