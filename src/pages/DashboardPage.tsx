@@ -109,19 +109,35 @@ const DashboardPage = () => {
     setHistory((prev) => [newConversion, ...prev]);
 
     try {
-      const response = await supabase.functions.invoke("generate-apk", {
-        body: {
+      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-apk`;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000); // 5 min timeout
+
+      const res = await fetch(functionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({
           url,
           packageName: `app.lovable.${appName.replace(/[^a-z0-9]/gi, "")}`,
           settings: appSettings,
-        },
+        }),
+        signal: controller.signal,
       });
 
-      if (response.error) throw new Error(response.error.message);
+      clearTimeout(timeout);
 
-      const blob = response.data instanceof Blob
-        ? response.data
-        : new Blob([response.data], { type: "application/zip" });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ error: "Build failed" }));
+        throw new Error(errBody.error || `Build failed (${res.status})`);
+      }
+
+      const blob = await res.blob();
       const downloadUrl = URL.createObjectURL(blob);
 
       setHistory((prev) =>
