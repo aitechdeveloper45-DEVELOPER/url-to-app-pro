@@ -1,0 +1,50 @@
+workflows:
+  android-build:
+    name: Native Android Build
+    max_build_duration: 30
+    instance_type: mac_mini_m1
+    environment:
+      java: 17
+      node: 18
+      vars:
+        APP_URL: "https://example.com"
+        APP_NAME: "MyApp"
+        APP_PACKAGE_NAME: "com.droidify.myapp"
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+
+      - name: Configure app
+        script: |
+          node scripts/configure.js
+
+      - name: Add Android platform
+        script: |
+          npx cap add android || true
+          npx cap sync android
+
+      - name: Set Android permissions
+        script: |
+          node scripts/set-permissions.js
+
+      - name: Apply native enhancements
+        script: |
+          node scripts/enhance-native.js
+
+      - name: Build Android
+        script: |
+          cd android
+          ./gradlew assembleRelease bundleRelease
+
+    artifacts:
+      - android/app/build/outputs/**/*.aab
+      - android/app/build/outputs/**/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - builds@droidify.app
+        notify:
+          success: false
+          failure: true

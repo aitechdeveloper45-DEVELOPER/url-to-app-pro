@@ -3,79 +3,58 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const PWABUILDER_URL = 'https://pwabuilder-cloudapk.azurewebsites.net/generateAppPackage';
+const CODEMAGIC_API = 'https://api.codemagic.io';
 
-type RequestBody = {
+interface BuildRequest {
   url: string;
-  format?: 'apk' | 'aab';
-  packageName?: string;
-  keyAlias?: string;
-  keyPassword?: string;
-  storePassword?: string;
-  validityYears?: number;
-  fullName?: string;
-  organizationalUnit?: string;
-  organization?: string;
-  city?: string;
-  state?: string;
-  countryCode?: string;
-};
-
-function sanitizeAppName(hostname: string) {
-  return hostname
-    .replace(/^www\./, '')
-    .split('.')[0]
-    .replace(/[^a-zA-Z0-9]/g, ' ')
-    .trim() || 'My App';
+  appName: string;
+  packageName: string;
+  iconUrl?: string;
+  settings: {
+    statusBarColor?: string;
+    navigationBarColor?: string;
+    loadingScreenEnabled?: boolean;
+    loadingScreenColor?: string;
+    fullscreenMode?: boolean;
+    orientationLock?: string;
+    screenshotDisable?: boolean;
+    pullToRefresh?: boolean;
+    keepScreenOn?: boolean;
+    secureMode?: boolean;
+    clipboardAccess?: boolean;
+    customJsHead?: string;
+    customJsBody?: string;
+    customCss?: string;
+    // Permissions
+    permCamera?: boolean;
+    permMicrophone?: boolean;
+    permVibration?: boolean;
+    permSms?: boolean;
+    permFileAccess?: boolean;
+    permLocation?: boolean;
+    permContacts?: boolean;
+    permPhone?: boolean;
+    permBluetooth?: boolean;
+    permNfc?: boolean;
+    permNotifications?: boolean;
+    permBiometric?: boolean;
+    permWifi?: boolean;
+    permAudio?: boolean;
+  };
 }
 
-function sanitizePackageName(value: string) {
+function sanitizePackageName(value: string): string {
   const cleaned = value
     .toLowerCase()
     .replace(/[^a-z0-9.]/g, '.')
     .replace(/\.+/g, '.')
     .replace(/^\.|\.$/g, '');
-
   const parts = cleaned.split('.').filter(Boolean).map((part) => {
     const normalized = part.replace(/[^a-z0-9]/g, '');
     return /^[a-z]/.test(normalized) ? normalized : `app${normalized || 'part'}`;
   });
-
   if (parts.length >= 2) return parts.join('.');
   return `app.lovable.${parts[0] || 'webapp'}`;
-}
-
-async function fetchManifest(url: string) {
-  const html = await fetch(url, { redirect: 'follow' }).then((res) => res.text());
-  const manifestMatch = html.match(/<link[^>]*rel=["'][^"']*manifest[^"']*["'][^>]*href=["']([^"']+)["']/i)
-    || html.match(/<link[^>]*href=["']([^"']+)["'][^>]*rel=["'][^"']*manifest[^"']*["']/i);
-
-  if (!manifestMatch) {
-    throw new Error('This website does not expose a web manifest, which is required for Play Store builds.');
-  }
-
-  const manifestUrl = new URL(manifestMatch[1], url).toString();
-  const manifest = await fetch(manifestUrl, { redirect: 'follow' }).then((res) => res.json());
-  return { manifest, manifestUrl };
-}
-
-function pickBestIcon(manifest: any, baseUrl: string, purpose?: 'maskable' | 'monochrome') {
-  const icons = Array.isArray(manifest.icons) ? manifest.icons : [];
-  const filtered = purpose
-    ? icons.filter((icon: any) => typeof icon.purpose === 'string' && icon.purpose.includes(purpose))
-    : icons;
-  const candidates = filtered.length > 0 ? filtered : icons;
-
-  const ranked = candidates
-    .map((icon: any) => {
-      const sizeText = typeof icon.sizes === 'string' ? icon.sizes.split(' ')[0] : '0x0';
-      const [w] = sizeText.split('x').map((n) => parseInt(n, 10) || 0);
-      return { icon, size: w };
-    })
-    .sort((a: any, b: any) => b.size - a.size);
-
-  if (!ranked[0]?.icon?.src) return null;
-  return new URL(ranked[0].icon.src, baseUrl).toString();
 }
 
 Deno.serve(async (req) => {
@@ -84,108 +63,120 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = (await req.json()) as RequestBody;
+    const CODEMAGIC_API_TOKEN = Deno.env.get('CODEMAGIC_API_TOKEN');
+    const CODEMAGIC_APP_ID = Deno.env.get('CODEMAGIC_APP_ID');
+
+    if (!CODEMAGIC_API_TOKEN) {
+      return new Response(JSON.stringify({ error: 'CODEMAGIC_API_TOKEN not configured' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (!CODEMAGIC_APP_ID) {
+      return new Response(JSON.stringify({ error: 'CODEMAGIC_APP_ID not configured' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const body: BuildRequest = await req.json();
 
     if (!body.url) {
-      return new Response(JSON.stringify({ error: 'URL is required.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      return new Response(JSON.stringify({ error: 'URL is required' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     const parsedUrl = new URL(body.url);
-    const host = `${parsedUrl.protocol}//${parsedUrl.host}`;
-    const { manifest, manifestUrl } = await fetchManifest(body.url);
+    const hostname = parsedUrl.hostname.replace(/^www\./, '');
+    const appName = body.appName || hostname.split('.')[0] || 'MyApp';
+    const packageName = sanitizePackageName(body.packageName || `com.droidify.${hostname.replace(/[^a-z0-9]/gi, '')}`);
 
-    const appName = manifest.name || manifest.short_name || sanitizeAppName(parsedUrl.hostname);
-    const launcherName = manifest.short_name || manifest.name || appName;
-    const packageId = sanitizePackageName(body.packageName || `app.lovable.${parsedUrl.hostname.replace(/[^a-z0-9]/gi, '')}`);
-    const iconUrl = pickBestIcon(manifest, manifestUrl) || `${host}/favicon.ico`;
-    const maskableIconUrl = pickBestIcon(manifest, manifestUrl, 'maskable');
-    const startUrl = typeof manifest.start_url === 'string' ? manifest.start_url : '/';
-    const themeColor = manifest.theme_color || '#ffffff';
-    const backgroundColor = manifest.background_color || '#ffffff';
-    const display = ['fullscreen', 'standalone'].includes(manifest.display) ? manifest.display : 'standalone';
-    const orientation = typeof manifest.orientation === 'string' ? manifest.orientation : 'default';
-
-    const payload = {
-      additionalTrustedOrigins: [],
-      appVersion: '1.0.0',
-      appVersionCode: 1,
-      backgroundColor,
-      display,
-      enableNotifications: false,
-      enableSiteSettingsShortcut: true,
-      fallbackType: 'customtabs',
-      features: {
-        locationDelegation: { enabled: true },
-        playBilling: { enabled: false },
-      },
-      host,
-      iconUrl,
-      includeSourceCode: false,
-      isChromeOSOnly: false,
-      launcherName,
-      maskableIconUrl,
-      monochromeIconUrl: pickBestIcon(manifest, manifestUrl, 'monochrome'),
-      name: appName,
-      navigationColor: themeColor,
-      navigationColorDark: themeColor,
-      navigationDividerColor: themeColor,
-      navigationDividerColorDark: themeColor,
-      orientation,
-      packageId,
-      serviceAccountJsonFile: null,
-      shortcuts: Array.isArray(manifest.shortcuts) ? manifest.shortcuts : [],
-      signingMode: 'new',
-      signing: {
-        file: null,
-        alias: body.keyAlias || 'app-key',
-        fullName: body.fullName || 'Developer',
-        organization: body.organization || 'My Company',
-        organizationalUnit: body.organizationalUnit || 'Development',
-        countryCode: (body.countryCode || 'US').toUpperCase(),
-        keyPassword: body.keyPassword || 'TempPass123!',
-        storePassword: body.storePassword || 'TempPass123!',
-      },
-      splashScreenFadeOutDuration: 300,
-      startUrl,
-      themeColor,
-      webManifestUrl: manifestUrl,
+    // Build environment variables that the Codemagic template project will use
+    const envVars: Record<string, string> = {
+      APP_URL: body.url,
+      APP_NAME: appName,
+      APP_PACKAGE_NAME: packageName,
+      APP_ICON_URL: body.iconUrl || '',
+      STATUS_BAR_COLOR: body.settings?.statusBarColor || '#000000',
+      NAVIGATION_BAR_COLOR: body.settings?.navigationBarColor || '#000000',
+      LOADING_SCREEN_ENABLED: String(body.settings?.loadingScreenEnabled ?? true),
+      LOADING_SCREEN_COLOR: body.settings?.loadingScreenColor || '#ffffff',
+      FULLSCREEN_MODE: String(body.settings?.fullscreenMode ?? false),
+      ORIENTATION_LOCK: body.settings?.orientationLock || 'default',
+      SCREENSHOT_DISABLE: String(body.settings?.screenshotDisable ?? false),
+      PULL_TO_REFRESH: String(body.settings?.pullToRefresh ?? true),
+      KEEP_SCREEN_ON: String(body.settings?.keepScreenOn ?? false),
+      SECURE_MODE: String(body.settings?.secureMode ?? false),
+      CLIPBOARD_ACCESS: String(body.settings?.clipboardAccess ?? true),
+      CUSTOM_JS_HEAD: body.settings?.customJsHead || '',
+      CUSTOM_JS_BODY: body.settings?.customJsBody || '',
+      CUSTOM_CSS: body.settings?.customCss || '',
+      // Permissions
+      PERM_CAMERA: String(body.settings?.permCamera ?? false),
+      PERM_MICROPHONE: String(body.settings?.permMicrophone ?? false),
+      PERM_VIBRATION: String(body.settings?.permVibration ?? true),
+      PERM_SMS: String(body.settings?.permSms ?? false),
+      PERM_FILE_ACCESS: String(body.settings?.permFileAccess ?? true),
+      PERM_LOCATION: String(body.settings?.permLocation ?? false),
+      PERM_CONTACTS: String(body.settings?.permContacts ?? false),
+      PERM_PHONE: String(body.settings?.permPhone ?? false),
+      PERM_BLUETOOTH: String(body.settings?.permBluetooth ?? false),
+      PERM_NFC: String(body.settings?.permNfc ?? false),
+      PERM_NOTIFICATIONS: String(body.settings?.permNotifications ?? true),
+      PERM_BIOMETRIC: String(body.settings?.permBiometric ?? false),
+      PERM_WIFI: String(body.settings?.permWifi ?? false),
+      PERM_AUDIO: String(body.settings?.permAudio ?? true),
     };
 
-    console.log(`Starting build for ${host}, package: ${packageId}`);
+    console.log(`Starting Codemagic build: ${appName} (${packageName}) for ${body.url}`);
 
-    const response = await fetch(PWABUILDER_URL, {
+    // Trigger Codemagic build via API
+    const buildResponse = await fetch(`${CODEMAGIC_API}/builds`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'platform-identifier': 'lovable',
-        'platform-identifier-version': '1',
+        'x-auth-token': CODEMAGIC_API_TOKEN,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        appId: CODEMAGIC_APP_ID,
+        workflowId: 'android-build',
+        branch: 'main',
+        environment: {
+          variables: envVars,
+        },
+      }),
     });
 
-    console.log(`PWABuilder response status: ${response.status}`);
-    const buffer = await response.arrayBuffer();
-    if (!response.ok) {
-      return new Response(JSON.stringify({ error: new TextDecoder().decode(buffer) }), {
-        status: response.status,
+    if (!buildResponse.ok) {
+      const errText = await buildResponse.text();
+      console.error(`Codemagic API error: ${buildResponse.status} - ${errText}`);
+      return new Response(JSON.stringify({ 
+        error: `Build trigger failed (${buildResponse.status}): ${errText}` 
+      }), {
+        status: buildResponse.status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const filename = `${appName.replace(/[^a-zA-Z0-9]/g, '_')}-android-build.zip`;
-    return new Response(buffer, {
+    const buildData = await buildResponse.json();
+    const buildId = buildData.buildId;
+
+    console.log(`Codemagic build started: ${buildId}`);
+
+    return new Response(JSON.stringify({
+      buildId,
+      status: 'queued',
+      appName,
+      packageName,
+      message: 'Build started on Codemagic. Use /build-status to poll for completion.',
+    }), {
       status: 200,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-      },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }), {
+    console.error('Build error:', error);
+    return new Response(JSON.stringify({ 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
