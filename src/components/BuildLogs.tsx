@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Terminal, CheckCircle2, XCircle, AlertCircle, Info } from "lucide-react";
-import { useRef, useEffect } from "react";
+import { forwardRef, useEffect, useRef } from "react";
 
 interface BuildLog {
   time: string;
@@ -14,12 +14,12 @@ interface BuildLogsProps {
 
 const typeConfig = {
   info: { icon: Info, className: "text-muted-foreground" },
-  success: { icon: CheckCircle2, className: "text-green-400" },
+  success: { icon: CheckCircle2, className: "text-success" },
   error: { icon: XCircle, className: "text-destructive" },
   warning: { icon: AlertCircle, className: "text-warning" },
 };
 
-const BuildLogs = ({ logs }: BuildLogsProps) => {
+const BuildLogs = forwardRef<HTMLDivElement, BuildLogsProps>(({ logs }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,6 +32,7 @@ const BuildLogs = ({ logs }: BuildLogsProps) => {
 
   return (
     <motion.div
+      ref={ref}
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: "auto" }}
       className="glass rounded-xl overflow-hidden"
@@ -41,7 +42,7 @@ const BuildLogs = ({ logs }: BuildLogsProps) => {
         <span className="text-sm font-semibold font-body">Build Logs</span>
         <span className="text-xs text-muted-foreground ml-auto">{logs.length} entries</span>
       </div>
-      <div ref={scrollRef} className="max-h-[300px] overflow-y-auto p-4 space-y-1 bg-black/20">
+      <div ref={scrollRef} className="max-h-[300px] overflow-y-auto space-y-1 bg-muted/40 p-4">
         {logs.map((log, i) => {
           const config = typeConfig[log.type];
           const Icon = config.icon;
@@ -56,6 +57,8 @@ const BuildLogs = ({ logs }: BuildLogsProps) => {
       </div>
     </motion.div>
   );
-};
+});
+
+BuildLogs.displayName = "BuildLogs";
 
 export default BuildLogs;

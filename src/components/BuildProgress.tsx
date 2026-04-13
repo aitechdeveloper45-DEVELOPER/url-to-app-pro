@@ -1,12 +1,12 @@
 import { motion } from "framer-motion";
-import { Loader2, CheckCircle2, XCircle, Clock, Cpu } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, Clock, Cpu, type LucideIcon } from "lucide-react";
 import type { BuildPhase } from "@/hooks/useBuildPolling";
 
-const phaseConfig: Record<BuildPhase, { icon: any; label: string; color: string; animate?: boolean }> = {
+const phaseConfig: Record<BuildPhase, { icon: LucideIcon; label: string; color: string; animate?: boolean }> = {
   idle: { icon: Clock, label: "Ready", color: "text-muted-foreground" },
   queued: { icon: Clock, label: "Queued — waiting for build server...", color: "text-warning", animate: true },
   building: { icon: Cpu, label: "Building native Android project...", color: "text-primary", animate: true },
-  complete: { icon: CheckCircle2, label: "Build complete!", color: "text-green-400" },
+  complete: { icon: CheckCircle2, label: "Build complete!", color: "text-success" },
   failed: { icon: XCircle, label: "Build failed", color: "text-destructive" },
 };
 
@@ -46,7 +46,7 @@ const BuildProgress = ({ phase, duration }: BuildProgressProps) => {
                 className={`h-1.5 rounded-full transition-all duration-500 ${
                   i <= currentStep
                     ? phase === "complete"
-                      ? "bg-green-400"
+                      ? "bg-success"
                       : "bg-primary"
                     : "bg-muted"
                 }`}

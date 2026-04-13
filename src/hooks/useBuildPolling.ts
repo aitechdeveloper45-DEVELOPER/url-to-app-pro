@@ -18,6 +18,31 @@ interface BuildState {
   error: string | null;
 }
 
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+};
+
+const formatBuildFailureMessage = (message?: string | null) => {
+  if (!message) return "Build failed";
+
+  if (message.includes("Step 3 script `Configure app`")) {
+    return "Codemagic could not run Configure app because the build repo structure is wrong. Add scripts/configure.js, scripts/enhance-native.js, and scripts/set-permissions.js inside a root-level scripts folder.";
+  }
+
+  return message;
+};
+
+const formatRequestErrorMessage = (error: unknown) => {
+  const message = getErrorMessage(error, "Build trigger failed");
+
+  if (message.toLowerCase().includes("failed to fetch")) {
+    return "Could not reach the build service. Retry once; if it still fails, stay signed in and check your network connection.";
+  }
+
+  return message;
+};
+
 export function useBuildPolling() {
   const [state, setState] = useState<BuildState>({
     buildId: null,
@@ -86,11 +111,12 @@ export function useBuildPolling() {
         }));
       } else if (data.status === "failed") {
         stopPolling();
+        const failureMessage = formatBuildFailureMessage(data.message);
         setState((prev) => ({
           ...prev,
           phase: "failed",
-          error: data.message || "Build failed",
-          logs: [...prev.logs, { time: new Date().toLocaleTimeString(), message: `Build failed: ${data.message || "Unknown error"}`, type: "error" }],
+          error: failureMessage,
+          logs: [...prev.logs, { time: new Date().toLocaleTimeString(), message: `Build failed: ${failureMessage}`, type: "error" }],
         }));
       }
     } catch (err: any) {
@@ -149,11 +175,12 @@ export function useBuildPolling() {
 
       return buildId;
     } catch (err: any) {
+      const errorMessage = formatRequestErrorMessage(err);
       setState((prev) => ({
         ...prev,
         phase: "failed",
-        error: err.message,
-        logs: [...prev.logs, { time: new Date().toLocaleTimeString(), message: `Error: ${err.message}`, type: "error" }],
+        error: errorMessage,
+        logs: [...prev.logs, { time: new Date().toLocaleTimeString(), message: `Error: ${errorMessage}`, type: "error" }],
       }));
       return null;
     }
