@@ -369,10 +369,10 @@ const DashboardPage = () => {
           <div className="space-y-4">
             <BuildProgress phase={build.phase} duration={build.duration} />
             <BuildLogs logs={build.logs} />
-            {build.phase === "complete" && (build.aabUrl || build.apkUrl) && (
+            {build.phase === "complete" && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass rounded-xl p-5 space-y-3">
                 <div className="flex items-center gap-3">
-                  <CheckCircle2 className="h-5 w-5 text-green-400" />
+                  <CheckCircle2 className="h-5 w-5 text-success" />
                   <div>
                     <p className="text-sm font-semibold font-body">Build Complete — Play Store Ready</p>
                     <p className="text-xs text-muted-foreground">Download your signed native Android files below</p>
@@ -387,6 +387,11 @@ const DashboardPage = () => {
                   {build.apkUrl && (
                     <Button variant="outline" onClick={() => window.open(build.apkUrl!, "_blank")}>
                       <Download className="h-4 w-4 mr-2" /> Download APK (Direct Install)
+                    </Button>
+                  )}
+                  {!build.aabUrl && !build.apkUrl && build.downloadUrl && (
+                    <Button onClick={() => window.open(build.downloadUrl!, "_blank")}>
+                      <Download className="h-4 w-4 mr-2" /> Download Build Artifacts
                     </Button>
                   )}
                 </div>
