@@ -34,7 +34,6 @@ workflows:
 
       - name: Configure release signing
         script: |
-          # Use debug keystore for signing so Gradle produces a signed AAB/APK
           KEYSTORE_PATH="$HOME/.android/debug.keystore"
           if [ ! -f "$KEYSTORE_PATH" ]; then
             keytool -genkey -v -keystore "$KEYSTORE_PATH" \
@@ -43,14 +42,35 @@ workflows:
               -dname "CN=Debug,OU=Debug,O=Debug,L=Debug,ST=Debug,C=US"
           fi
 
-          # Add signing config to app/build.gradle
-          GRADLE_FILE="android/app/build.gradle"
-          if [ -f "$GRADLE_FILE" ]; then
-            # Insert signingConfigs block before buildTypes
-            sed -i "s|buildTypes {|signingConfigs {\n        release {\n            storeFile file(\"$KEYSTORE_PATH\")\n            storePassword \"android\"\n            keyAlias \"androiddebugkey\"\n            keyPassword \"android\"\n        }\n    }\n\n    buildTypes {|" "$GRADLE_FILE"
-            # Set release buildType to use the signing config
-            sed -i "s|release {|release {\n            signingConfig signingConfigs.release|" "$GRADLE_FILE"
-          fi
+          export KEYSTORE_PATH
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          gradle_file = Path("android/app/build.gradle")
+          if not gradle_file.exists():
+              raise SystemExit("android/app/build.gradle not found")
+
+          text = gradle_file.read_text()
+          signing_block = f'''signingConfigs {{
+        release {{
+            storeFile file("{os.environ["KEYSTORE_PATH"]}")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }}
+    }}
+
+    buildTypes {{'''
+
+          if "signingConfigs {" not in text:
+              text = text.replace("buildTypes {", signing_block, 1)
+
+          if "signingConfig signingConfigs.release" not in text:
+              text = text.replace("release {", "release {\n            signingConfig signingConfigs.release", 1)
+
+          gradle_file.write_text(text)
+          PY
 
       - name: Build Android AAB and APK
         script: |

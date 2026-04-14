@@ -32,6 +32,10 @@ const formatBuildFailureMessage = (message?: string | null) => {
     return "Codemagic could not run Configure app because the build repo structure is wrong. Add scripts/configure.js, scripts/enhance-native.js, and scripts/set-permissions.js inside a root-level scripts folder.";
   }
 
+  if (message.includes("Step 7 script `Configure release signing`")) {
+    return "The Android signing step failed, so no AAB/APK was created. Update the Codemagic signing script to use a cross-platform patch instead of the current sed-based build.gradle edit.";
+  }
+
   return message;
 };
 
