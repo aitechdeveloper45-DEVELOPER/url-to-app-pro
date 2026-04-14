@@ -151,6 +151,8 @@ export function useBuildPolling() {
       phase: "queued",
       logs: [{ time: new Date().toLocaleTimeString(), message: `Starting build for ${params.appName}...`, type: "info" }],
       downloadUrl: null,
+      aabUrl: null,
+      apkUrl: null,
       duration: null,
       error: null,
     });
