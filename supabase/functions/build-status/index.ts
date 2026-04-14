@@ -42,10 +42,10 @@ Deno.serve(async (req) => {
     const data = await response.json();
     const build = data.build || data;
 
-    // Map Codemagic status to our status
     const cmStatus = build.status || 'unknown';
     let status: string;
-    let downloadUrl: string | null = null;
+    let aabUrl: string | null = null;
+    let apkUrl: string | null = null;
 
     switch (cmStatus) {
       case 'queued':
@@ -59,17 +59,18 @@ Deno.serve(async (req) => {
         break;
       case 'finished':
         status = 'complete';
-        // Find the AAB artifact
+        // Extract individual artifact download URLs
         if (build.artefacts && Array.isArray(build.artefacts)) {
-          const aab = build.artefacts.find((a: any) => 
-            a.name?.endsWith('.aab') || a.type === 'aab'
-          );
-          const apk = build.artefacts.find((a: any) => 
-            a.name?.endsWith('.apk') || a.type === 'apk'
-          );
-          const artifact = aab || apk || build.artefacts[0];
-          if (artifact) {
-            downloadUrl = artifact.url || artifact.downloadUrl || null;
+          for (const a of build.artefacts) {
+            const name = (a.name || '').toLowerCase();
+            const artifactUrl = a.url || a.downloadUrl || null;
+            if (!artifactUrl) continue;
+
+            if (name.endsWith('.aab')) {
+              aabUrl = artifactUrl;
+            } else if (name.endsWith('.apk')) {
+              apkUrl = artifactUrl;
+            }
           }
         }
         break;
@@ -85,7 +86,9 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({
       buildId,
       status,
-      downloadUrl,
+      aabUrl,
+      apkUrl,
+      downloadUrl: aabUrl || apkUrl || null,
       duration: build.duration || null,
       startedAt: build.startedAt || null,
       finishedAt: build.finishedAt || null,

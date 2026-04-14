@@ -32,14 +32,34 @@ workflows:
         script: |
           node scripts/enhance-native.js
 
-      - name: Build Android
+      - name: Configure release signing
+        script: |
+          # Use debug keystore for signing so Gradle produces a signed AAB/APK
+          KEYSTORE_PATH="$HOME/.android/debug.keystore"
+          if [ ! -f "$KEYSTORE_PATH" ]; then
+            keytool -genkey -v -keystore "$KEYSTORE_PATH" \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Debug,OU=Debug,O=Debug,L=Debug,ST=Debug,C=US"
+          fi
+
+          # Add signing config to app/build.gradle
+          GRADLE_FILE="android/app/build.gradle"
+          if [ -f "$GRADLE_FILE" ]; then
+            # Insert signingConfigs block before buildTypes
+            sed -i "s|buildTypes {|signingConfigs {\n        release {\n            storeFile file(\"$KEYSTORE_PATH\")\n            storePassword \"android\"\n            keyAlias \"androiddebugkey\"\n            keyPassword \"android\"\n        }\n    }\n\n    buildTypes {|" "$GRADLE_FILE"
+            # Set release buildType to use the signing config
+            sed -i "s|release {|release {\n            signingConfig signingConfigs.release|" "$GRADLE_FILE"
+          fi
+
+      - name: Build Android AAB and APK
         script: |
           cd android
-          ./gradlew assembleRelease bundleRelease
+          ./gradlew bundleRelease assembleRelease
 
     artifacts:
-      - android/app/build/outputs/**/*.aab
-      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/bundle/**/*.aab
+      - android/app/build/outputs/apk/**/*.apk
 
     publishing:
       email:
