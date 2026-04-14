@@ -14,6 +14,8 @@ interface BuildState {
   phase: BuildPhase;
   logs: BuildLog[];
   downloadUrl: string | null;
+  aabUrl: string | null;
+  apkUrl: string | null;
   duration: number | null;
   error: string | null;
 }
@@ -49,6 +51,8 @@ export function useBuildPolling() {
     phase: "idle",
     logs: [],
     downloadUrl: null,
+    aabUrl: null,
+    apkUrl: null,
     duration: null,
     error: null,
   });
@@ -102,12 +106,23 @@ export function useBuildPolling() {
         });
       } else if (data.status === "complete") {
         stopPolling();
+        const hasAab = !!data.aabUrl;
+        const hasApk = !!data.apkUrl;
+        const msg = hasAab && hasApk
+          ? "Build complete! Your AAB and APK are ready to download."
+          : hasAab
+          ? "Build complete! Your AAB is ready to download."
+          : hasApk
+          ? "Build complete! Your APK is ready to download."
+          : "Build complete!";
         setState((prev) => ({
           ...prev,
           phase: "complete",
-          downloadUrl: data.downloadUrl,
+          downloadUrl: data.aabUrl || data.apkUrl || data.downloadUrl,
+          aabUrl: data.aabUrl || null,
+          apkUrl: data.apkUrl || null,
           duration: data.duration,
-          logs: [...prev.logs, { time: new Date().toLocaleTimeString(), message: "Build complete! Your AAB is ready to download.", type: "success" }],
+          logs: [...prev.logs, { time: new Date().toLocaleTimeString(), message: msg, type: "success" }],
         }));
       } else if (data.status === "failed") {
         stopPolling();
@@ -136,6 +151,8 @@ export function useBuildPolling() {
       phase: "queued",
       logs: [{ time: new Date().toLocaleTimeString(), message: `Starting build for ${params.appName}...`, type: "info" }],
       downloadUrl: null,
+      aabUrl: null,
+      apkUrl: null,
       duration: null,
       error: null,
     });
@@ -193,6 +210,8 @@ export function useBuildPolling() {
       phase: "idle",
       logs: [],
       downloadUrl: null,
+      aabUrl: null,
+      apkUrl: null,
       duration: null,
       error: null,
     });

@@ -43,7 +43,15 @@ interface BuildRequest {
   };
 }
 
+function isValidPackageName(value: string): boolean {
+  // Valid Android package: at least 2 dot-separated segments, each starting with a letter
+  return /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(value);
+}
+
 function sanitizePackageName(value: string): string {
+  // If user provided a valid package name, use it exactly as-is
+  if (isValidPackageName(value)) return value;
+
   const cleaned = value
     .toLowerCase()
     .replace(/[^a-z0-9.]/g, '.')
