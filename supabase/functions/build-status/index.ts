@@ -62,8 +62,8 @@ Deno.serve(async (req) => {
         // Extract individual artifact download URLs
         if (build.artefacts && Array.isArray(build.artefacts)) {
           for (const a of build.artefacts) {
-            const name = (a.name || '').toLowerCase();
-            const artifactUrl = a.url || a.downloadUrl || null;
+            const name = (a.name || a.fileName || '').toLowerCase();
+            const artifactUrl = a.url || a.downloadUrl || a.externalUrl || null;
             if (!artifactUrl) continue;
 
             if (name.endsWith('.aab')) {
@@ -71,6 +71,16 @@ Deno.serve(async (req) => {
             } else if (name.endsWith('.apk')) {
               apkUrl = artifactUrl;
             }
+          }
+        }
+        // Fallback: check artefacts under different key names
+        if (!aabUrl && !apkUrl && build.artifacts && Array.isArray(build.artifacts)) {
+          for (const a of build.artifacts) {
+            const name = (a.name || a.fileName || '').toLowerCase();
+            const artifactUrl = a.url || a.downloadUrl || a.externalUrl || null;
+            if (!artifactUrl) continue;
+            if (name.endsWith('.aab')) aabUrl = artifactUrl;
+            else if (name.endsWith('.apk')) apkUrl = artifactUrl;
           }
         }
         break;
