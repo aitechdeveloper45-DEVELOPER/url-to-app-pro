@@ -369,18 +369,27 @@ const DashboardPage = () => {
           <div className="space-y-4">
             <BuildProgress phase={build.phase} duration={build.duration} />
             <BuildLogs logs={build.logs} />
-            {build.phase === "complete" && build.downloadUrl && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass rounded-xl p-5 flex items-center justify-between">
+            {build.phase === "complete" && (build.aabUrl || build.apkUrl) && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass rounded-xl p-5 space-y-3">
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="h-5 w-5 text-green-400" />
                   <div>
-                    <p className="text-sm font-semibold font-body">Native AAB Ready</p>
-                    <p className="text-xs text-muted-foreground">Play Store–compliant signed bundle</p>
+                    <p className="text-sm font-semibold font-body">Build Complete — Play Store Ready</p>
+                    <p className="text-xs text-muted-foreground">Download your signed native Android files below</p>
                   </div>
                 </div>
-                <Button onClick={() => window.open(build.downloadUrl!, "_blank")}>
-                  <Download className="h-4 w-4 mr-2" /> Download AAB
-                </Button>
+                <div className="flex flex-wrap gap-3">
+                  {build.aabUrl && (
+                    <Button onClick={() => window.open(build.aabUrl!, "_blank")}>
+                      <Download className="h-4 w-4 mr-2" /> Download AAB (Play Store)
+                    </Button>
+                  )}
+                  {build.apkUrl && (
+                    <Button variant="outline" onClick={() => window.open(build.apkUrl!, "_blank")}>
+                      <Download className="h-4 w-4 mr-2" /> Download APK (Direct Install)
+                    </Button>
+                  )}
+                </div>
               </motion.div>
             )}
           </div>
