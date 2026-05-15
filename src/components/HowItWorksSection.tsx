@@ -7,7 +7,7 @@ const steps = [
   {
     number: "02",
     title: "Configure signing",
-    description: "Upload your keystore or let us generate a test key automatically.",
+    description: "Upload your own .jks / .keystore to sign your AAB.",
   },
   {
     number: "03",

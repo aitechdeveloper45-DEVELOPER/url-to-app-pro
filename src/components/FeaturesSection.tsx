@@ -14,7 +14,7 @@ const features = [
   {
     icon: Shield,
     title: "Secure Signing",
-    description: "Upload your own keystore or auto-generate a test key for signing.",
+    description: "Upload your own keystore to sign release builds.",
   },
   {
     icon: Download,
