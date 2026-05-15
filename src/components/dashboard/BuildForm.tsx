@@ -223,7 +223,6 @@ const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
         description: "Choose which keystore to sign this build with.",
         variant: "destructive",
       });
-      setBuilding(false);
       return;
     }
 
