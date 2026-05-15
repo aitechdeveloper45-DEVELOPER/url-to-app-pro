@@ -208,8 +208,25 @@ const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
       toast({ title: "App name required", description: "Please enter an app name", variant: "destructive" });
       return;
     }
-    // Signing key is optional — if none selected, the build pipeline
-    // auto-generates a test keystore (good for sideloading; not for Play updates).
+    // Signing key is required — uploads must be signed with the user's own keystore.
+    if (!signingKeyId && signingKeys.length === 0) {
+      toast({
+        title: "Signing key required",
+        description: "Upload your .jks / .keystore in the Signing tab before building.",
+        variant: "destructive",
+      });
+      setBuilding(false);
+      return;
+    }
+    if (!signingKeyId && signingKeys.length > 0) {
+      toast({
+        title: "Select a signing key",
+        description: "Choose which keystore to sign this build with.",
+        variant: "destructive",
+      });
+      setBuilding(false);
+      return;
+    }
 
     setBuilding(true);
     try {
