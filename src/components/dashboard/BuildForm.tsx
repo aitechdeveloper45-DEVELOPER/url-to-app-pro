@@ -215,7 +215,6 @@ const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
         description: "Upload your .jks / .keystore in the Signing tab before building.",
         variant: "destructive",
       });
-      setBuilding(false);
       return;
     }
     if (!signingKeyId && signingKeys.length > 0) {
