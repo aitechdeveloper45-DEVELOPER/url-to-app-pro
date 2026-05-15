@@ -713,10 +713,10 @@ const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
             </div>
 
             {signingKeys.length === 0 && !showInlineKey && (
-              <div className="rounded-lg border border-dashed border-border bg-card/20 p-4 text-center">
+              <div className="rounded-lg border border-dashed border-destructive/40 bg-destructive/5 p-4 text-center">
                 <Key className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
                 <p className="text-xs text-muted-foreground">
-                  No signing key selected. Builds will still run with a generated test key; upload your own keystore only for Play Store updates/submission.
+                  No signing key uploaded yet. Add your .jks / .keystore above — builds require your own signing key.
                 </p>
               </div>
             )}
