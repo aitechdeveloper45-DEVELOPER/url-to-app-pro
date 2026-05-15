@@ -1,0 +1,355 @@
+workflows:
+  build-aab-workflow:
+    name: Build Android
+    max_build_duration: 60
+    environment:
+      java: 17
+    scripts:
+      - name: Verify Android template exists
+        script: |
+          test -f "$CM_BUILD_DIR/android-template/settings.gradle"
+          test -f "$CM_BUILD_DIR/android-template/build.gradle"
+          test -f "$CM_BUILD_DIR/android-template/app/build.gradle"
+      - name: Set up Android SDK path
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android-template/local.properties"
+      - name: Force Android API 35 target
+        script: |
+          set -euo pipefail
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" >/dev/null || true
+          GRADLE_FILE="$CM_BUILD_DIR/android-template/app/build.gradle"
+          perl -0pi -e 's/compileSdk(?:Version)?\s+\d+/compileSdk 35/g; s/targetSdk(?:Version)?\s+\d+/targetSdk 35/g' "$GRADLE_FILE"
+          grep -Eq 'compileSdk\s+35' "$GRADLE_FILE"
+          grep -Eq 'targetSdk\s+35' "$GRADLE_FILE"
+          sed -n '/android {/,/defaultConfig {/p; /defaultConfig {/,/}/p' "$GRADLE_FILE" | grep -E 'compileSdk|targetSdk' || true
+          echo "✅ Android build is locked to compileSdk 35 and targetSdk 35."
+      - name: Normalize Gradle signing DSL
+        script: |
+          GRADLE_FILE="$CM_BUILD_DIR/android-template/app/build.gradle"
+          perl -0pi -e 's/\bv3SigningEnabled\s*(?:=|\()?\s*true\s*\)?/enableV3Signing = true/g; s/\bv4SigningEnabled\s*(?:=|\()?\s*true\s*\)?/enableV4Signing = true/g' "$GRADLE_FILE"
+          if grep -Eq 'v3SigningEnabled|v4SigningEnabled' "$GRADLE_FILE"; then
+            echo "❌ Invalid Android Gradle signing DSL remains in app/build.gradle."
+            exit 1
+          fi
+          echo "✅ Gradle signing DSL is compatible with Android Gradle Plugin."
+      - name: Write custom code injection files (assets)
+        script: |
+          ASSETS_DIR="$CM_BUILD_DIR/android-template/app/src/main/assets"
+          mkdir -p "$ASSETS_DIR"
+          # Custom code is passed as base64 so quotes, newlines, $, backticks and unicode
+          # survive Codemagic environment variables and shell execution unchanged.
+          decode_asset() {
+            VAR_NAME="$1"
+            OUT_FILE="$2"
+            VALUE="$(printenv "$VAR_NAME" || true)"
+            if [ -n "$VALUE" ]; then
+              printf '%s' "$VALUE" | base64 --decode > "$OUT_FILE"
+            else
+              : > "$OUT_FILE"
+            fi
+          }
+          decode_asset CUSTOM_HTML_B64 "$ASSETS_DIR/custom_html.txt"
+          decode_asset CUSTOM_CSS_B64  "$ASSETS_DIR/custom_css.txt"
+          decode_asset CUSTOM_JS_B64   "$ASSETS_DIR/custom_js.txt"
+          echo "Custom code assets written:"
+          wc -c "$ASSETS_DIR/custom_html.txt" "$ASSETS_DIR/custom_css.txt" "$ASSETS_DIR/custom_js.txt"
+      - name: Download and install launcher icon
+        script: |
+          set -euo pipefail
+          RES_DIR="$CM_BUILD_DIR/android-template/app/src/main/res"
+          # Remove every generated/vector launcher icon from previous builds so Android cannot pick a stale logo.
+          rm -rf "$RES_DIR"/mipmap-* "$RES_DIR"/drawable-anydpi-v26 2>/dev/null || true
+          rm -f "$RES_DIR/drawable/ic_launcher.xml" "$RES_DIR/drawable/ic_launcher.png" "$RES_DIR/drawable/splash_icon.png" 2>/dev/null || true
+          write_adaptive_icon_xmls() {
+            mkdir -p "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
+            printf '%s\n' \
+              '<?xml version="1.0" encoding="utf-8"?>' \
+              '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">' \
+              '    <background android:drawable="@color/ic_launcher_background" />' \
+              '    <foreground android:drawable="@mipmap/ic_launcher_foreground" />' \
+              '</adaptive-icon>' > "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
+            cp "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml" "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
+          }
+          generate_default_resources() {
+            echo "Generating default launcher icon without ImageMagick."
+            python3 - "$RES_DIR" <<'PY'
+          import os, struct, zlib, sys
+          res_dir = sys.argv[1]
+          def png(path, size):
+              cx = cy = size / 2
+              radius = size * 0.27
+              rows = []
+              for y in range(size):
+                  row = bytearray([0])
+                  for x in range(size):
+                      inside = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 <= radius ** 2
+                      row.extend((255, 255, 255, 255) if inside else (79, 70, 229, 255))
+                  rows.append(bytes(row))
+              raw = b''.join(rows)
+              def chunk(tag, data):
+                  return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff)
+              data = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b'')
+              os.makedirs(os.path.dirname(path), exist_ok=True)
+              with open(path, 'wb') as f:
+                  f.write(data)
+          for folder, size in [('mipmap-mdpi',48),('mipmap-hdpi',72),('mipmap-xhdpi',96),('mipmap-xxhdpi',144),('mipmap-xxxhdpi',192)]:
+              out = os.path.join(res_dir, folder)
+              os.makedirs(out, exist_ok=True)
+              for name in ('ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png'):
+                  png(os.path.join(out, name), size)
+          png(os.path.join(res_dir, 'drawable', 'splash_icon.png'), 192)
+          PY
+            write_adaptive_icon_xmls
+          }
+          ensure_imagemagick() {
+            if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+              echo "Installing ImageMagick for uploaded icon resizing..."
+              if [[ "$OSTYPE" == "darwin"* ]] || command -v brew >/dev/null 2>&1; then
+                brew install imagemagick || brew install --quiet imagemagick || true
+              else
+                sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick || true
+              fi
+            fi
+            if command -v magick >/dev/null 2>&1; then IM="magick"; elif command -v convert >/dev/null 2>&1; then IM="convert"; else IM=""; fi
+          }
+          if [ -z "${ICON_URL:-}" ]; then
+            echo "No ICON_URL provided; using default launcher icon."
+            generate_default_resources
+          else
+            ICON_TMP="/tmp/app_icon_src"
+            echo "Downloading icon from $ICON_URL"
+            if curl -fsSL "$ICON_URL" -o "$ICON_TMP"; then
+              ensure_imagemagick
+              if [ -n "$IM" ] && $IM "$ICON_TMP" -resize 512x512 /tmp/app_icon_normalized.png; then
+                echo "Using ImageMagick command: $IM"
+                for entry in "mipmap-mdpi:48" "mipmap-hdpi:72" "mipmap-xhdpi:96" "mipmap-xxhdpi:144" "mipmap-xxxhdpi:192"; do
+                  FOLDER="${entry%%:*}"
+                  SIZE="${entry##*:}"
+                  mkdir -p "$RES_DIR/$FOLDER"
+                  $IM /tmp/app_icon_normalized.png -background none -resize ${SIZE}x${SIZE}^ -gravity center -extent ${SIZE}x${SIZE} "$RES_DIR/$FOLDER/ic_launcher.png"
+                  $IM /tmp/app_icon_normalized.png -background none -resize ${SIZE}x${SIZE}^ -gravity center -extent ${SIZE}x${SIZE} "$RES_DIR/$FOLDER/ic_launcher_round.png"
+                  $IM /tmp/app_icon_normalized.png -background none -resize ${SIZE}x${SIZE}^ -gravity center -extent ${SIZE}x${SIZE} "$RES_DIR/$FOLDER/ic_launcher_foreground.png"
+                done
+                write_adaptive_icon_xmls
+                $IM /tmp/app_icon_normalized.png -resize 192x192^ -gravity center -extent 192x192 "$RES_DIR/drawable/splash_icon.png"
+              else
+                echo "Uploaded icon could not be processed; using default launcher icon."
+                generate_default_resources
+              fi
+            else
+              echo "Icon download failed; using default launcher icon."
+              generate_default_resources
+            fi
+          fi
+          # Verify every required generated resource really exists; fail loudly if not.
+          REQUIRED=(
+            "$RES_DIR/drawable/splash_icon.png"
+            "$RES_DIR/mipmap-anydpi-v26/ic_launcher.xml"
+            "$RES_DIR/mipmap-anydpi-v26/ic_launcher_round.xml"
+          )
+          for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            REQUIRED+=("$RES_DIR/$d/ic_launcher.png" "$RES_DIR/$d/ic_launcher_round.png" "$RES_DIR/$d/ic_launcher_foreground.png")
+          done
+          MISSING=0
+          for f in "${REQUIRED[@]}"; do
+            if [ ! -s "$f" ]; then echo "❌ Missing generated resource: $f"; MISSING=1; fi
+          done
+          if [ "$MISSING" = "1" ]; then exit 1; fi
+          echo "✅ Launcher icons + splash icon generated and verified."
+      - name: Decode or auto-generate signing key
+        script: |
+          mkdir -p "$CM_BUILD_DIR/android-template/app"
+          KS_PATH="$CM_BUILD_DIR/android-template/app/release.jks"
+          if [ -z "${CM_KEYSTORE:-}" ]; then
+            echo "❌ No release keystore was provided."
+            echo "   Open the dashboard → Signing Keys → upload your .jks/.keystore file with the correct alias and passwords,"
+            echo "   mark it as default (or select it on the build form), then re-run the build."
+            echo "   Play Console requires every uploaded AAB to be signed with your registered upload key — the previous"
+            echo "   builds were rejected because they were signed with an auto-generated/debug certificate."
+            exit 1
+          else
+            if [ -z "${CM_KEYSTORE_PASSWORD:-}" ]; then
+              echo "❌ CM_KEYSTORE_PASSWORD must be set when uploading a keystore."
+              exit 1
+            fi
+            if [ -z "${CM_KEY_PASSWORD:-}" ]; then
+              CM_KEY_PASSWORD="$CM_KEYSTORE_PASSWORD"
+            fi
+            echo "$CM_KEYSTORE" | base64 --decode > "$KS_PATH"
+            if [ ! -s "$KS_PATH" ]; then
+              echo "❌ Keystore decoded to empty file."
+              exit 1
+            fi
+          fi
+          if [ -z "${CM_KEYSTORE_PASSWORD:-}" ] || [ -z "${CM_KEY_ALIAS:-}" ] || [ -z "${CM_KEY_PASSWORD:-}" ]; then
+            echo "❌ Signing setup did not produce complete credentials."
+            exit 1
+          fi
+          # Verify the keystore opens, then auto-detect the real alias when the user typed it wrong.
+          if ! keytool -list -keystore "$KS_PATH" -storepass "$CM_KEYSTORE_PASSWORD" >/tmp/keystore-list.txt 2>&1; then
+            cat /tmp/keystore-list.txt
+            echo "❌ Keystore store password is invalid. Re-upload the signing key with the correct store password."
+            exit 1
+          fi
+          DETECTED_ALIAS="$(keytool -list -v -keystore "$KS_PATH" -storepass "$CM_KEYSTORE_PASSWORD" 2>/dev/null | awk -F': ' '/Alias name:/ {print $2; exit}')"
+          if [ -z "${CM_KEY_ALIAS:-}" ] || ! keytool -list -keystore "$KS_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -alias "$CM_KEY_ALIAS" >/dev/null 2>&1; then
+            if [ -n "$DETECTED_ALIAS" ]; then
+              echo "⚠️ Supplied key alias was empty or not found; using detected alias: $DETECTED_ALIAS"
+              CM_KEY_ALIAS="$DETECTED_ALIAS"
+            else
+              echo "❌ Could not detect a key alias inside the uploaded keystore."
+              exit 1
+            fi
+          fi
+          # Verify the private key password too; if it fails, try the common case where it equals store password.
+          if ! keytool -certreq -alias "$CM_KEY_ALIAS" -keystore "$KS_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEY_PASSWORD" -file /tmp/keycheck.csr >/tmp/keypass-check.txt 2>&1; then
+            if keytool -certreq -alias "$CM_KEY_ALIAS" -keystore "$KS_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -keypass "$CM_KEYSTORE_PASSWORD" -file /tmp/keycheck.csr >/dev/null 2>&1; then
+              echo "⚠️ Supplied key password failed; using store password as key password for this keystore."
+              CM_KEY_PASSWORD="$CM_KEYSTORE_PASSWORD"
+            else
+              cat /tmp/keypass-check.txt
+              echo "❌ Key password is invalid for alias '$CM_KEY_ALIAS'. Re-upload the signing key with the correct key password."
+              exit 1
+            fi
+          fi
+          if ! keytool -list -keystore "$KS_PATH" -storepass "$CM_KEYSTORE_PASSWORD" -alias "$CM_KEY_ALIAS" >/dev/null 2>&1; then
+            echo "❌ Keystore credentials invalid after alias detection. Re-upload the signing key."
+            exit 1
+          fi
+          PROPS_PATH="$CM_BUILD_DIR/android-template/app/signing.properties"
+          {
+            echo "storeFile=$KS_PATH"
+            printf 'storePasswordB64='; printf '%s' "$CM_KEYSTORE_PASSWORD" | base64 | tr -d '\n'; printf '\n'
+            printf 'keyAliasB64='; printf '%s' "$CM_KEY_ALIAS" | base64 | tr -d '\n'; printf '\n'
+            printf 'keyPasswordB64='; printf '%s' "$CM_KEY_PASSWORD" | base64 | tr -d '\n'; printf '\n'
+          } > "$PROPS_PATH"
+          chmod 600 "$PROPS_PATH"
+          export CM_KEYSTORE_PATH="$KS_PATH"
+          echo "CM_KEYSTORE_PATH=$KS_PATH" >> "$CM_ENV"
+          echo "CM_KEY_ALIAS=$CM_KEY_ALIAS" >> "$CM_ENV"
+          echo "✅ Release keystore verified: $KS_PATH (alias: $CM_KEY_ALIAS)"
+      - name: Ensure Gradle wrapper exists
+        working_directory: android-template
+        script: |
+          if [ ! -f ./gradlew ]; then
+            echo "gradlew missing — generating wrapper with Gradle 8.7"
+            gradle wrapper --gradle-version 8.7 --distribution-type bin
+          fi
+          test -f ./gradlew
+          chmod +x ./gradlew
+          ls -la ./gradlew
+      - name: Build Android artifacts
+        working_directory: android-template
+        script: |
+          BUILD_TYPE="${BUILD_TYPE:-aab}"
+          echo "Building with BUILD_TYPE=$BUILD_TYPE"
+          echo "VERSION_NAME=${VERSION_NAME:-<unset>} VERSION_CODE=${VERSION_CODE:-<unset>} PACKAGE_NAME=${PACKAGE_NAME:-<unset>}"
+          GRADLE_VERSION_ARGS=""
+          if [ -n "${VERSION_CODE:-}" ]; then
+            GRADLE_VERSION_ARGS="$GRADLE_VERSION_ARGS -PappVersionCode=$VERSION_CODE"
+          fi
+          if [ -n "${VERSION_NAME:-}" ]; then
+            GRADLE_VERSION_ARGS="$GRADLE_VERSION_ARGS -PappVersionName=$VERSION_NAME"
+          fi
+          case "$BUILD_TYPE" in
+            apk)
+              ./gradlew assembleRelease $GRADLE_VERSION_ARGS --stacktrace --no-daemon
+              ;;
+            both)
+              ./gradlew assembleRelease bundleRelease $GRADLE_VERSION_ARGS --stacktrace --no-daemon
+              ;;
+            *)
+              ./gradlew bundleRelease $GRADLE_VERSION_ARGS --stacktrace --no-daemon
+              ;;
+          esac
+      - name: Verify Play target API is 35
+        working_directory: android-template
+        script: |
+          set -euo pipefail
+          # Inspect the ACTUAL produced AAB (what Play receives), not an intermediate.
+          AAB_FILE="$(find app/build/outputs/bundle/release -name '*.aab' | head -n 1 || true)"
+          APK_FILE="$(find app/build/outputs/apk/release -name '*.apk' | head -n 1 || true)"
+          BUILD_TOOLS_DIR="$(ls -d $ANDROID_SDK_ROOT/build-tools/*/ | sort -V | tail -n 1)"
+          AAPT2="${BUILD_TOOLS_DIR}aapt2"
+
+          check_target_sdk() {
+            local file="$1"
+            local kind="$2"
+            echo "Inspecting $kind: $file"
+            if [ "$kind" = "AAB" ]; then
+              local manifest
+              curl -fsSL -o /tmp/bundletool.jar https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+              manifest="$(java -jar /tmp/bundletool.jar dump manifest --bundle="$file")"
+              echo "$manifest" | grep -i 'targetSdk' || true
+              if ! echo "$manifest" | grep -Eq 'targetSdkVersion="35"'; then
+                echo "❌ AAB targetSdkVersion is not 35. Play Console will reject this upload."
+                exit 1
+              fi
+            else
+              local dump
+              dump="$("$AAPT2" dump badging "$file" 2>/dev/null || true)"
+              echo "$dump" | grep -Ei "targetSdkVersion|sdkVersion" || true
+              if ! echo "$dump" | grep -Eq "targetSdkVersion:'35'"; then
+                echo "❌ APK targetSdkVersion is not 35."
+                exit 1
+              fi
+            fi
+            echo "✅ $kind targetSdkVersion is 35."
+          }
+
+          if [ -n "$AAB_FILE" ]; then check_target_sdk "$AAB_FILE" "AAB"; fi
+          if [ -n "$APK_FILE" ]; then check_target_sdk "$APK_FILE" "APK"; fi
+          if [ -z "$AAB_FILE" ] && [ -z "$APK_FILE" ]; then
+            echo "❌ No AAB or APK produced to verify."
+            exit 1
+          fi
+      - name: Verify APK signature (release, not debug)
+        working_directory: android-template
+        script: |
+          APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            echo "Verifying $APK_FILE"
+            BUILD_TOOLS_DIR=$(ls -d $ANDROID_SDK_ROOT/build-tools/*/ | sort -V | tail -n 1)
+            APKSIGNER="${BUILD_TOOLS_DIR}apksigner"
+            if [ -x "$APKSIGNER" ]; then
+              "$APKSIGNER" verify --print-certs "$APK_FILE" > /tmp/apksig.txt 2>&1 || {
+                cat /tmp/apksig.txt
+                echo "❌ APK signature verification failed."
+                exit 1
+              }
+              cat /tmp/apksig.txt
+              if grep -qi "CN=Android Debug" /tmp/apksig.txt; then
+                echo "❌ APK is signed with the DEBUG keystore. Play Console will reject this."
+                exit 1
+              fi
+              echo "✅ APK signed in release mode."
+            fi
+          fi
+      - name: Verify AAB signature (release, not debug)
+        working_directory: android-template
+        script: |
+          AAB_FILE=$(find app/build/outputs/bundle/release -name "*.aab" | head -n 1)
+          if [ -z "$AAB_FILE" ]; then
+            echo "No AAB produced, skipping."
+            exit 0
+          fi
+          echo "Inspecting $AAB_FILE"
+          # AAB is a zip; META-INF contains the JAR signature block.
+          unzip -p "$AAB_FILE" META-INF/*.RSA > /tmp/aab.rsa 2>/dev/null || \
+            unzip -p "$AAB_FILE" META-INF/*.DSA > /tmp/aab.rsa 2>/dev/null || \
+            unzip -p "$AAB_FILE" META-INF/*.EC  > /tmp/aab.rsa 2>/dev/null
+          if [ ! -s /tmp/aab.rsa ]; then
+            echo "❌ AAB has no signature block — it is unsigned."
+            exit 1
+          fi
+          keytool -printcert -file /tmp/aab.rsa > /tmp/aab_cert.txt 2>&1 || true
+          cat /tmp/aab_cert.txt
+          if grep -qi "CN=Android Debug" /tmp/aab_cert.txt; then
+            echo "❌ AAB is signed with the DEBUG keystore. Play Console will reject this upload."
+            exit 1
+          fi
+          echo "✅ AAB signed in release mode — safe to upload to Play Console."
+    artifacts:
+      - android-template/app/build/outputs/**/*.aab
+      - android-template/app/build/outputs/**/*.apk
+      - android-template/app/build/outputs/**/mapping.txt
