@@ -208,8 +208,23 @@ const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
       toast({ title: "App name required", description: "Please enter an app name", variant: "destructive" });
       return;
     }
-    // Signing key is optional — if none selected, the build pipeline
-    // auto-generates a test keystore (good for sideloading; not for Play updates).
+    // Signing key is required — uploads must be signed with the user's own keystore.
+    if (!signingKeyId && signingKeys.length === 0) {
+      toast({
+        title: "Signing key required",
+        description: "Upload your .jks / .keystore in the Signing tab before building.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!signingKeyId && signingKeys.length > 0) {
+      toast({
+        title: "Select a signing key",
+        description: "Choose which keystore to sign this build with.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setBuilding(true);
     try {
@@ -647,9 +662,9 @@ const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
                 </Button>
               </div>
 
-              <div className="rounded-md border border-primary/30 bg-primary/10 p-3">
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
                 <p className="text-xs text-foreground">
-                  No key selected? The build will use an auto-generated test keystore, so APK/AAB generation still works for testing and sideloading.
+                  A signing key is required. Upload your own .jks / .keystore here or in the Signing Keys tab — builds will not start without one.
                 </p>
               </div>
 
@@ -698,10 +713,10 @@ const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
             </div>
 
             {signingKeys.length === 0 && !showInlineKey && (
-              <div className="rounded-lg border border-dashed border-border bg-card/20 p-4 text-center">
+              <div className="rounded-lg border border-dashed border-destructive/40 bg-destructive/5 p-4 text-center">
                 <Key className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
                 <p className="text-xs text-muted-foreground">
-                  No signing key selected. Builds will still run with a generated test key; upload your own keystore only for Play Store updates/submission.
+                  No signing key uploaded yet. Add your .jks / .keystore above — builds require your own signing key.
                 </p>
               </div>
             )}
