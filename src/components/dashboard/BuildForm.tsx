@@ -1,0 +1,729 @@
+import { useState, useEffect, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { Globe, Rocket, Palette, DollarSign, Key, Loader2, Code2, Shield } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+
+interface SigningKey {
+  id: string;
+  name: string;
+  key_alias: string;
+  is_default: boolean;
+  keystore_path: string | null;
+}
+
+interface BuildFormProps {
+  userId: string;
+  onBuildStarted: () => void;
+}
+
+const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
+  const versionNameToCode = (value: string) => {
+    const parts = value
+      .trim()
+      .split(".")
+      .map((part) => Number.parseInt(part.replace(/\D/g, ""), 10) || 0);
+    const [major = 1, minor = 0, patch = 0] = parts;
+    return Math.max(1, major * 10000 + minor * 100 + patch);
+  };
+
+  const [url, setUrl] = useState("");
+  const [appName, setAppName] = useState("");
+  const [packageName, setPackageName] = useState("com.example.app");
+  const [versionName, setVersionName] = useState("1.0.0");
+  const [versionCode, setVersionCode] = useState(versionNameToCode("1.0.0"));
+  const [orientation, setOrientation] = useState("portrait");
+  const [splashColor, setSplashColor] = useState("#FFFFFF");
+  const [themeColor, setThemeColor] = useState("#4f46e5");
+  const [navColor, setNavColor] = useState("#000000");
+  const [admobAppId, setAdmobAppId] = useState("");
+  const [admobBannerId, setAdmobBannerId] = useState("");
+  const [admobInterstitialId, setAdmobInterstitialId] = useState("");
+  const [admobRewardedId, setAdmobRewardedId] = useState("");
+  const [enableBilling, setEnableBilling] = useState(false);
+  const [enableCapacitor, setEnableCapacitor] = useState(false);
+  const [customHtml, setCustomHtml] = useState("");
+  const [customCss, setCustomCss] = useState("");
+  const [customJs, setCustomJs] = useState("");
+  const [buildType, setBuildType] = useState<"aab" | "apk" | "both">("apk");
+  const [signingKeyId, setSigningKeyId] = useState<string>("");
+  const [signingKeys, setSigningKeys] = useState<SigningKey[]>([]);
+  const [iconFile, setIconFile] = useState<File | null>(null);
+  const [building, setBuilding] = useState(false);
+
+  // Inline "upload your own keystore" flow inside Signing tab
+  const [showInlineKey, setShowInlineKey] = useState(false);
+  const [newKeyName, setNewKeyName] = useState("My Release Key");
+  const [newKeyAlias, setNewKeyAlias] = useState("");
+  const [newKeyPassword, setNewKeyPassword] = useState("");
+  const [newStorePassword, setNewStorePassword] = useState("");
+  const [newKeystoreFile, setNewKeystoreFile] = useState<File | null>(null);
+  const [savingKey, setSavingKey] = useState(false);
+  const keystoreInputRef = useRef<HTMLInputElement | null>(null);
+
+  const saveInlineSigningKey = async () => {
+    const selectedKeystoreFile = newKeystoreFile || keystoreInputRef.current?.files?.[0] || null;
+    const missingFields = [
+      !newStorePassword.trim() ? "store password" : null,
+      !selectedKeystoreFile ? "keystore file" : null,
+    ].filter(Boolean);
+
+    if (missingFields.length > 0) {
+      toast({
+        title: "Missing fields",
+        description: `Please add: ${missingFields.join(", ")}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setSavingKey(true);
+    try {
+      const safeName = selectedKeystoreFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${userId}/keystores/${Date.now()}_${safeName}`;
+      const { error: upErr } = await supabase.storage
+        .from("app-assets")
+        .upload(path, selectedKeystoreFile, {
+          contentType: "application/octet-stream",
+          upsert: false,
+        });
+      if (upErr) throw new Error(`Keystore upload failed: ${upErr.message}`);
+
+      // Make this the default key so future builds pick it up automatically too.
+      await supabase.from("signing_keys").update({ is_default: false }).eq("user_id", userId);
+
+      const { data, error } = await supabase
+        .from("signing_keys")
+        .insert({
+          user_id: userId,
+          name: newKeyName.trim() || "My Release Key",
+          key_alias: newKeyAlias.trim() || "auto-detect",
+          key_password: newKeyPassword.trim() || newStorePassword.trim(),
+          store_password: newStorePassword.trim(),
+          keystore_path: path,
+          is_default: true,
+        })
+        .select("id, name, key_alias, is_default, keystore_path")
+        .single();
+      if (error) throw error;
+
+      toast({ title: "Signing key saved", description: "Your keystore will be used to sign this build." });
+      // Refresh list and auto-select the new key
+      await loadSigningKeys();
+      if (data) setSigningKeyId(data.id);
+      // Reset form
+      setNewKeyAlias("");
+      setNewKeyPassword("");
+      setNewStorePassword("");
+      setNewKeystoreFile(null);
+      if (keystoreInputRef.current) keystoreInputRef.current.value = "";
+      setShowInlineKey(false);
+    } catch (err: unknown) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Unable to save signing key.", variant: "destructive" });
+    } finally {
+      setSavingKey(false);
+    }
+  };
+
+  // Native feature toggles
+  const [feat, setFeat] = useState({
+    enable_pull_to_refresh: true,
+    enable_native_splash: true,
+    enable_offline_page: true,
+    enable_push_notifications: false,
+    enable_camera: false,
+    enable_microphone: false,
+    enable_location: false,
+    enable_storage: false,
+    enable_sms: false,
+    enable_contacts: false,
+    enable_phone_state: false,
+    enable_vibrate: true,
+    enable_clipboard: true,
+    enable_share: true,
+    enable_biometric: false,
+    enable_bluetooth: false,
+    enable_nfc: false,
+    enable_calendar: false,
+    enable_file_download: true,
+    enable_file_upload: true,
+    enable_geolocation: false,
+    block_screenshots: false,
+    keep_screen_on: false,
+    fullscreen_mode: false,
+    hide_status_bar: false,
+    allow_zoom: false,
+    dark_mode_force: false,
+    allow_external_links: true,
+    cache_enabled: true,
+    allow_cleartext: true,
+    swipe_back_navigation: true,
+  });
+  const [userAgentOverride, setUserAgentOverride] = useState("");
+  const setF = (k: keyof typeof feat, v: boolean) => setFeat((p) => ({ ...p, [k]: v }));
+
+  const { toast } = useToast();
+
+  useEffect(() => {
+    loadSigningKeys();
+  }, []);
+
+  const loadSigningKeys = async () => {
+    const { data } = await supabase
+      .from("signing_keys")
+      .select("id, name, key_alias, is_default, keystore_path")
+      .not("keystore_path", "is", null)
+      .order("is_default", { ascending: false });
+    if (data) {
+      setSigningKeys(data);
+      const defaultKey = data.find((k) => k.is_default);
+      setSigningKeyId(defaultKey?.id ?? data[0]?.id ?? "");
+    }
+  };
+
+  const autoFillPackageName = (name: string) => {
+    setAppName(name);
+    if (name) {
+      const clean = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      setPackageName(`com.app.${clean}`);
+    }
+  };
+
+  const handleVersionNameChange = (value: string) => {
+    setVersionName(value);
+    setVersionCode(versionNameToCode(value));
+  };
+
+  const handleBuild = async () => {
+    if (!url.trim()) {
+      toast({ title: "URL required", description: "Please enter your web app URL", variant: "destructive" });
+      return;
+    }
+    if (!appName.trim()) {
+      toast({ title: "App name required", description: "Please enter an app name", variant: "destructive" });
+      return;
+    }
+    // Signing key is optional — if none selected, the build pipeline
+    // auto-generates a test keystore (good for sideloading; not for Play updates).
+
+    setBuilding(true);
+    try {
+      let iconPath: string | null = null;
+      if (iconFile) {
+        const path = `${userId}/icons/${Date.now()}_${iconFile.name}`;
+        const { error: upErr } = await supabase.storage.from("app-assets").upload(path, iconFile);
+        if (upErr) throw upErr;
+        iconPath = path;
+      }
+
+      const { data, error } = await supabase
+        .from("build_configs")
+        .insert({
+          user_id: userId,
+          url: url.trim(),
+          app_name: appName.trim(),
+          package_name: packageName.trim(),
+          version_name: versionName.trim(),
+          version_code: Math.max(versionCode, versionNameToCode(versionName)),
+          orientation,
+          splash_color: splashColor,
+          theme_color: themeColor,
+          nav_color: navColor,
+          admob_app_id: admobAppId || null,
+          admob_banner_id: admobBannerId || null,
+          admob_interstitial_id: admobInterstitialId || null,
+          admob_rewarded_id: admobRewardedId || null,
+          enable_billing: enableBilling,
+          enable_capacitor: enableCapacitor,
+          custom_html: customHtml || null,
+          custom_css: customCss || null,
+          custom_js: customJs || null,
+          build_type: buildType,
+          signing_key_id: signingKeyId || null,
+          icon_path: iconPath,
+          status: "pending",
+          user_agent_override: userAgentOverride || null,
+          ...feat,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Trigger the build edge function
+      const { data: triggerResult, error: fnError } = await supabase.functions.invoke("build-aab", {
+        body: { build_id: data.id },
+      });
+
+      if (fnError) {
+        throw fnError;
+      }
+
+      if (triggerResult && typeof triggerResult === "object" && "error" in triggerResult) {
+        throw new Error(String(triggerResult.error));
+      }
+
+      toast({
+        title: "Build started",
+        description: buildType === "apk" ? "Your APK is being generated..." : buildType === "aab" ? "Your AAB is being generated..." : "Your APK and AAB are being generated...",
+      });
+    } catch (err: unknown) {
+      toast({ title: "Build failed", description: err instanceof Error ? err.message : "Unable to start build.", variant: "destructive" });
+    } finally {
+      onBuildStarted();
+      setBuilding(false);
+    }
+  };
+
+  return (
+    <div className="glow-border rounded-xl bg-card/50 overflow-hidden">
+      <div className="p-6 border-b border-border">
+        <h2 className="font-heading text-lg font-bold text-foreground flex items-center gap-2">
+          <Rocket className="h-5 w-5 text-primary" />
+          New Build
+        </h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          Paste your web app URL and configure your Android app
+        </p>
+      </div>
+
+      <Tabs defaultValue="basic" className="w-full">
+        <TabsList className="w-full flex flex-wrap justify-start rounded-none border-b border-border bg-transparent h-auto p-0 overflow-x-auto">
+          <TabsTrigger value="basic" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-xs font-heading">
+            <Globe className="h-3.5 w-3.5 mr-1.5" /> Basic
+          </TabsTrigger>
+          <TabsTrigger value="appearance" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-xs font-heading">
+            <Palette className="h-3.5 w-3.5 mr-1.5" /> Appearance
+          </TabsTrigger>
+          <TabsTrigger value="native" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-xs font-heading">
+            <Shield className="h-3.5 w-3.5 mr-1.5" /> Native
+          </TabsTrigger>
+          <TabsTrigger value="monetization" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-xs font-heading">
+            <DollarSign className="h-3.5 w-3.5 mr-1.5" /> Monetize
+          </TabsTrigger>
+          <TabsTrigger value="custom" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-xs font-heading">
+            <Code2 className="h-3.5 w-3.5 mr-1.5" /> Custom
+          </TabsTrigger>
+          <TabsTrigger value="signing" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-3 text-xs font-heading">
+            <Key className="h-3.5 w-3.5 mr-1.5" /> Signing
+          </TabsTrigger>
+        </TabsList>
+
+        <div className="p-6">
+          <TabsContent value="basic" className="mt-0 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-heading text-foreground">Web App URL *</Label>
+              <Input
+                placeholder="https://your-webapp.lovable.app"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                className="font-heading text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">App Name *</Label>
+                <Input
+                  placeholder="My App"
+                  value={appName}
+                  onChange={(e) => autoFillPackageName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">Package Name</Label>
+                <Input
+                  placeholder="com.example.app"
+                  value={packageName}
+                  onChange={(e) => setPackageName(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">Version</Label>
+                <Input value={versionName} onChange={(e) => handleVersionNameChange(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">Play Version Code</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={versionCode}
+                  onChange={(e) => setVersionCode(Math.max(1, Number(e.target.value) || 1))}
+                />
+                <p className="text-xs text-muted-foreground">Must be higher than your last Play upload.</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">Orientation</Label>
+                <Select value={orientation} onValueChange={setOrientation}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="portrait">Portrait</SelectItem>
+                    <SelectItem value="landscape">Landscape</SelectItem>
+                    <SelectItem value="any">Any</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-heading text-foreground">Build Output</Label>
+              <Select value={buildType} onValueChange={(v) => setBuildType(v as "aab" | "apk" | "both")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="apk">APK only — install directly on phone</SelectItem>
+                  <SelectItem value="aab">AAB only — for Google Play</SelectItem>
+                  <SelectItem value="both">Both APK + AAB</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">APK is for sideloading on your device. AAB is required for the Play Store.</p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-heading text-foreground">App Icon (512x512 PNG)</Label>
+              <Input
+                type="file"
+                accept=".png,.jpg,.jpeg"
+                onChange={(e) => setIconFile(e.target.files?.[0] || null)}
+                className="text-xs"
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="appearance" className="mt-0 space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">Splash Color</Label>
+                <div className="flex gap-2">
+                  <input type="color" value={splashColor} onChange={(e) => setSplashColor(e.target.value)} className="h-10 w-10 rounded cursor-pointer border-0" />
+                  <Input value={splashColor} onChange={(e) => setSplashColor(e.target.value)} className="text-xs" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">Theme Color</Label>
+                <div className="flex gap-2">
+                  <input type="color" value={themeColor} onChange={(e) => setThemeColor(e.target.value)} className="h-10 w-10 rounded cursor-pointer border-0" />
+                  <Input value={themeColor} onChange={(e) => setThemeColor(e.target.value)} className="text-xs" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">Nav Bar Color</Label>
+                <div className="flex gap-2">
+                  <input type="color" value={navColor} onChange={(e) => setNavColor(e.target.value)} className="h-10 w-10 rounded cursor-pointer border-0" />
+                  <Input value={navColor} onChange={(e) => setNavColor(e.target.value)} className="text-xs" />
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">These colors customize the Android status bar, navigation bar, and splash screen.</p>
+          </TabsContent>
+
+          <TabsContent value="native" className="mt-0 space-y-6">
+            {/* Section: UX */}
+            <div>
+              <h3 className="text-xs font-heading font-bold text-foreground mb-3 uppercase tracking-wider">User Experience</h3>
+              <div className="space-y-2">
+                {[
+                  { k: "enable_native_splash" as const,    label: "Native Splash Screen",  desc: "Show app icon on launch in your splash color" },
+                  { k: "enable_pull_to_refresh" as const,  label: "Pull to Refresh",       desc: "Swipe down on the page to reload" },
+                  { k: "enable_offline_page" as const,     label: "Offline Fallback Page", desc: "Show a friendly offline screen instead of browser error" },
+                  { k: "swipe_back_navigation" as const,   label: "Back-button Navigation",desc: "Hardware back goes to previous page in WebView history" },
+                  { k: "allow_zoom" as const,              label: "Allow Pinch-to-Zoom",   desc: "Let users zoom into pages with pinch gestures" },
+                  { k: "dark_mode_force" as const,         label: "Force Dark Mode",       desc: "Always use dark theme regardless of system setting" },
+                  { k: "allow_external_links" as const,    label: "Open External Links",   desc: "Open non-app URLs in the system browser" },
+                  { k: "cache_enabled" as const,           label: "Web Cache",             desc: "Cache assets for faster loads (recommended)" },
+                  { k: "allow_cleartext" as const,         label: "Allow Mixed HTTP",      desc: "Permit insecure http:// resources on https:// pages" },
+                ].map(({ k, label, desc }) => (
+                  <div key={k} className="flex items-center justify-between rounded-lg border border-border bg-card/30 p-3">
+                    <div className="pr-4">
+                      <p className="text-sm font-heading font-medium text-foreground">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch checked={feat[k]} onCheckedChange={(v) => setF(k, v)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Section: Display & Privacy */}
+            <div>
+              <h3 className="text-xs font-heading font-bold text-foreground mb-3 uppercase tracking-wider">Display &amp; Privacy</h3>
+              <div className="space-y-2">
+                {[
+                  { k: "block_screenshots" as const, label: "Block Screenshots",        desc: "Prevent users from taking screenshots or screen recording (FLAG_SECURE)" },
+                  { k: "keep_screen_on" as const,    label: "Keep Screen On",           desc: "Screen stays awake while app is open" },
+                  { k: "fullscreen_mode" as const,   label: "Fullscreen Mode",          desc: "Hide the system status bar entirely" },
+                  { k: "hide_status_bar" as const,   label: "Hide Status Bar",          desc: "Immersive mode (status bar appears on swipe)" },
+                ].map(({ k, label, desc }) => (
+                  <div key={k} className="flex items-center justify-between rounded-lg border border-border bg-card/30 p-3">
+                    <div className="pr-4">
+                      <p className="text-sm font-heading font-medium text-foreground">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch checked={feat[k]} onCheckedChange={(v) => setF(k, v)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Section: Permissions */}
+            <div>
+              <h3 className="text-xs font-heading font-bold text-foreground mb-3 uppercase tracking-wider">Permissions</h3>
+              <p className="text-xs text-muted-foreground mb-3">Only enable what your app actually uses — Play Store reviewers reject apps that request unused permissions.</p>
+              <div className="space-y-2">
+                {[
+                  { k: "enable_camera" as const,             label: "Camera",                desc: "android.permission.CAMERA" },
+                  { k: "enable_microphone" as const,         label: "Microphone",            desc: "android.permission.RECORD_AUDIO" },
+                  { k: "enable_location" as const,           label: "Location",              desc: "ACCESS_FINE_LOCATION + COARSE" },
+                  { k: "enable_geolocation" as const,        label: "Web Geolocation API",   desc: "Allow JS navigator.geolocation in WebView" },
+                  { k: "enable_storage" as const,            label: "Files & Media",         desc: "READ_EXTERNAL_STORAGE / READ_MEDIA_*" },
+                  { k: "enable_sms" as const,                label: "SMS",                   desc: "SEND_SMS, READ_SMS, RECEIVE_SMS" },
+                  { k: "enable_contacts" as const,           label: "Contacts",              desc: "READ_CONTACTS, WRITE_CONTACTS" },
+                  { k: "enable_phone_state" as const,        label: "Phone State",           desc: "READ_PHONE_STATE" },
+                  { k: "enable_calendar" as const,           label: "Calendar",              desc: "READ_CALENDAR, WRITE_CALENDAR" },
+                  { k: "enable_push_notifications" as const, label: "Push Notifications",    desc: "POST_NOTIFICATIONS (Android 13+)" },
+                  { k: "enable_biometric" as const,          label: "Biometric / Fingerprint", desc: "USE_BIOMETRIC, USE_FINGERPRINT" },
+                  { k: "enable_bluetooth" as const,          label: "Bluetooth",             desc: "BLUETOOTH_CONNECT, BLUETOOTH_SCAN" },
+                  { k: "enable_nfc" as const,                label: "NFC",                   desc: "android.permission.NFC" },
+                  { k: "enable_vibrate" as const,            label: "Vibration",             desc: "android.permission.VIBRATE" },
+                ].map(({ k, label, desc }) => (
+                  <div key={k} className="flex items-center justify-between rounded-lg border border-border bg-card/30 p-3">
+                    <div className="pr-4">
+                      <p className="text-sm font-heading font-medium text-foreground">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch checked={feat[k]} onCheckedChange={(v) => setF(k, v)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Section: Web Bridges */}
+            <div>
+              <h3 className="text-xs font-heading font-bold text-foreground mb-3 uppercase tracking-wider">Web ↔ Native Bridges</h3>
+              <p className="text-xs text-muted-foreground mb-3">
+                Available globally as <code>window.AndroidNative.*</code> from your web app.
+              </p>
+              <div className="space-y-2">
+                {[
+                  { k: "enable_clipboard" as const,     label: "Clipboard",        desc: "AndroidNative.copyToClipboard(text)" },
+                  { k: "enable_share" as const,         label: "Native Share Sheet", desc: "AndroidNative.share(text, title)" },
+                  { k: "enable_file_download" as const, label: "File Downloads",   desc: "Hook DownloadManager for downloadable links" },
+                  { k: "enable_file_upload" as const,   label: "File Uploads",     desc: "Allow <input type=file> to access device files" },
+                ].map(({ k, label, desc }) => (
+                  <div key={k} className="flex items-center justify-between rounded-lg border border-border bg-card/30 p-3">
+                    <div className="pr-4">
+                      <p className="text-sm font-heading font-medium text-foreground">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch checked={feat[k]} onCheckedChange={(v) => setF(k, v)} />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Section: Advanced */}
+            <div>
+              <h3 className="text-xs font-heading font-bold text-foreground mb-3 uppercase tracking-wider">Advanced</h3>
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">User Agent Override (optional)</Label>
+                <Input
+                  placeholder="Leave empty to use the default WebView user agent"
+                  value={userAgentOverride}
+                  onChange={(e) => setUserAgentOverride(e.target.value)}
+                  className="text-xs font-mono"
+                />
+                <p className="text-xs text-muted-foreground">Some sites block WebViews — set a custom UA to bypass.</p>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="monetization" className="mt-0 space-y-4">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">AdMob App ID</Label>
+                <Input placeholder="ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX" value={admobAppId} onChange={(e) => setAdmobAppId(e.target.value)} className="text-xs" />
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs font-heading text-foreground">Banner Ad ID</Label>
+                  <Input placeholder="ca-app-pub-..." value={admobBannerId} onChange={(e) => setAdmobBannerId(e.target.value)} className="text-xs" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-heading text-foreground">Interstitial ID</Label>
+                  <Input placeholder="ca-app-pub-..." value={admobInterstitialId} onChange={(e) => setAdmobInterstitialId(e.target.value)} className="text-xs" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-heading text-foreground">Rewarded ID</Label>
+                  <Input placeholder="ca-app-pub-..." value={admobRewardedId} onChange={(e) => setAdmobRewardedId(e.target.value)} className="text-xs" />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-card/30 p-4">
+              <div>
+                <p className="text-sm font-heading font-medium text-foreground">Google Play Billing</p>
+                <p className="text-xs text-muted-foreground">Enable in-app purchases & subscriptions (adds BILLING permission + billing-client lib)</p>
+              </div>
+              <Switch checked={enableBilling} onCheckedChange={setEnableBilling} />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-border bg-card/30 p-4">
+              <div>
+                <p className="text-sm font-heading font-medium text-foreground">Capacitor Support</p>
+                <p className="text-xs text-muted-foreground">Bundle Capacitor core so your web app's Capacitor plugins (camera, share, etc.) work natively</p>
+              </div>
+              <Switch checked={enableCapacitor} onCheckedChange={setEnableCapacitor} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="custom" className="mt-0 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-heading text-foreground">Custom CSS</Label>
+              <Textarea
+                placeholder="/* Injected after page load — override styles, hide elements, etc. */&#10;body { background: #000; }"
+                value={customCss}
+                onChange={(e) => setCustomCss(e.target.value)}
+                className="font-mono text-xs min-h-[100px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-heading text-foreground">Custom HTML</Label>
+              <Textarea
+                placeholder='<!-- Appended to <body> after page load -->&#10;<div id="native-banner">Hello from Android!</div>'
+                value={customHtml}
+                onChange={(e) => setCustomHtml(e.target.value)}
+                className="font-mono text-xs min-h-[100px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-heading text-foreground">Custom JavaScript</Label>
+              <Textarea
+                placeholder="// Runs after page load. window.__ANDROID_NATIVE__ === true&#10;// Use window.AndroidBilling.* if billing is enabled."
+                value={customJs}
+                onChange={(e) => setCustomJs(e.target.value)}
+                className="font-mono text-xs min-h-[120px]"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Code runs inside the WebView after each page load. Globals exposed: <code>window.__ANDROID_NATIVE__</code>, <code>window.__BILLING_ENABLED__</code>, <code>window.__CAPACITOR_NATIVE__</code>.
+            </p>
+          </TabsContent>
+
+          <TabsContent value="signing" className="mt-0 space-y-4">
+            {signingKeys.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-xs font-heading text-foreground">Use Existing Signing Key</Label>
+                <Select value={signingKeyId} onValueChange={setSigningKeyId}>
+                  <SelectTrigger><SelectValue placeholder="Choose a signing key" /></SelectTrigger>
+                  <SelectContent>
+                    {signingKeys.map((k) => (
+                      <SelectItem key={k.id} value={k.id}>
+                        {k.name} ({k.key_alias}){k.is_default ? " · default" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+              <div className="rounded-lg border border-border bg-card/30 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-heading font-medium text-foreground flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-primary" /> Upload Your Own .jks / .keystore
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use the same keystore as your previous Play Store release so the SHA-1 / SHA-256 fingerprints stay identical.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  onClick={() => setShowInlineKey((v) => !v)}
+                >
+                  {showInlineKey ? "Cancel" : "Add Key"}
+                </Button>
+              </div>
+
+              <div className="rounded-md border border-primary/30 bg-primary/10 p-3">
+                <p className="text-xs text-foreground">
+                  No key selected? The build will use an auto-generated test keystore, so APK/AAB generation still works for testing and sideloading.
+                </p>
+              </div>
+
+              {showInlineKey && (
+                <div className="space-y-3 pt-2 border-t border-border">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Key Name</Label>
+                      <Input value={newKeyName} onChange={(e) => setNewKeyName(e.target.value)} placeholder="My Release Key" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Key Alias</Label>
+                      <Input value={newKeyAlias} onChange={(e) => setNewKeyAlias(e.target.value)} placeholder="Optional — auto-detected if blank" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Key Password</Label>
+                      <Input type="password" value={newKeyPassword} onChange={(e) => setNewKeyPassword(e.target.value)} placeholder="Optional — uses store password if blank" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Store Password *</Label>
+                      <Input type="password" value={newStorePassword} onChange={(e) => setNewStorePassword(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Keystore File (.jks / .keystore) *</Label>
+                    <Input
+                      ref={keystoreInputRef}
+                      type="file"
+                      onInput={(e) => setNewKeystoreFile(e.currentTarget.files?.[0] || null)}
+                      onChange={(e) => setNewKeystoreFile(e.currentTarget.files?.[0] || null)}
+                      className="text-xs file:mr-3 file:rounded file:border-0 file:bg-primary/20 file:px-3 file:py-1 file:text-foreground"
+                    />
+                    {newKeystoreFile && (
+                      <p className="text-xs text-primary">
+                        ✓ {newKeystoreFile.name} ({Math.round(newKeystoreFile.size / 1024)} KB)
+                      </p>
+                    )}
+                  </div>
+                  <Button variant="hero" size="sm" onClick={saveInlineSigningKey} disabled={savingKey}>
+                    {savingKey ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Saving...</> : "Save & Use This Key"}
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {signingKeys.length === 0 && !showInlineKey && (
+              <div className="rounded-lg border border-dashed border-border bg-card/20 p-4 text-center">
+                <Key className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground">
+                  No signing key selected. Builds will still run with a generated test key; upload your own keystore only for Play Store updates/submission.
+                </p>
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">
+              The keystore is stored privately and only used to sign your AAB/APK. Keep your passwords safe — they cannot be recovered.
+            </p>
+          </TabsContent>
+        </div>
+      </Tabs>
+
+      <div className="p-6 border-t border-border">
+        <Button variant="hero" className="w-full" onClick={handleBuild} disabled={building}>
+          {building ? (
+            <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Building...</>
+          ) : (
+            <><Rocket className="h-4 w-4 mr-2" /> {buildType === "apk" ? "Build APK" : buildType === "aab" ? "Build AAB" : "Build APK + AAB"}</>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+export default BuildForm;
