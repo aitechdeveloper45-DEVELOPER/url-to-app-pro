@@ -662,9 +662,9 @@ const BuildForm = ({ userId, onBuildStarted }: BuildFormProps) => {
                 </Button>
               </div>
 
-              <div className="rounded-md border border-primary/30 bg-primary/10 p-3">
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
                 <p className="text-xs text-foreground">
-                  No key selected? The build will use an auto-generated test keystore, so APK/AAB generation still works for testing and sideloading.
+                  A signing key is required. Upload your own .jks / .keystore here or in the Signing Keys tab — builds will not start without one.
                 </p>
               </div>
 
