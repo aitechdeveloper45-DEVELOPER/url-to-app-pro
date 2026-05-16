@@ -179,28 +179,10 @@ android {
         buildConfigField "boolean", "ALLOW_CLEARTEXT",         "${fAllowCleartext}"
         buildConfigField "boolean", "SWIPE_BACK_NAVIGATION",   "${fSwipeBackNavigation}"
 
-        // Manifest placeholders — "merge" keeps a <uses-permission>, "remove" strips it.
-        // This ensures permissions only end up in the AAB when the feature is enabled,
-        // which is required for Play Store policy (e.g. SMS, Contacts, Location, etc.).
-        def n = { boolean on -> on ? "merge" : "remove" }
-        manifestPlaceholders = [
-            billingNode    : n(envEnableBilling),
-            vibrateNode    : n(fEnableVibrate),
-            cameraNode     : n(fEnableCamera),
-            microphoneNode : n(fEnableMicrophone),
-            locationNode   : n(fEnableLocation || fEnableGeolocation),
-            storageNode    : n(fEnableStorage),
-            mediaNode      : n(fEnableStorage),
-            smsNode        : n(fEnableSms),
-            contactsNode   : n(fEnableContacts),
-            phoneNode      : n(fEnablePhoneState),
-            pushNode       : n(fEnablePush),
-            biometricNode  : n(fEnableBiometric),
-            bluetoothNode  : n(fEnableBluetooth),
-            nfcNode        : n(fEnableNfc),
-            calendarNode   : n(fEnableCalendar),
-            wakeLockNode   : n(fKeepScreenOn || fEnablePush)
-        ]
+        // Optional native permissions are injected into AndroidManifest.xml by
+        // codemagic.yaml before Gradle runs. Keeping them out of the base manifest
+        // avoids manifest-merger failures and prevents disabled features from
+        // appearing in the final AAB.
     }
 
     buildFeatures {
