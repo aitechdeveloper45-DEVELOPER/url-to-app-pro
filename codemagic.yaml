@@ -59,7 +59,7 @@ workflows:
           RES_DIR="$CM_BUILD_DIR/android-template/app/src/main/res"
           # Remove every generated/vector launcher icon from previous builds so Android cannot pick a stale logo.
           rm -rf "$RES_DIR"/mipmap-* "$RES_DIR"/drawable-anydpi-v26 2>/dev/null || true
-          rm -f "$RES_DIR/drawable/ic_launcher.xml" "$RES_DIR/drawable/ic_launcher.png" "$RES_DIR/drawable/splash_icon.png" 2>/dev/null || true
+          rm -f "$RES_DIR/drawable/ic_launcher.xml" "$RES_DIR/drawable/ic_launcher.png" "$RES_DIR/drawable/splash_icon."* 2>/dev/null || true
           write_adaptive_icon_xmls() {
             mkdir -p "$RES_DIR/mipmap-anydpi-v26" "$RES_DIR/drawable"
             printf '%s\n' \
