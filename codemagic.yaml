@@ -228,6 +228,75 @@ workflows:
           echo "CM_KEYSTORE_PATH=$KS_PATH" >> "$CM_ENV"
           echo "CM_KEY_ALIAS=$CM_KEY_ALIAS" >> "$CM_ENV"
           echo "✅ Release keystore verified: $KS_PATH (alias: $CM_KEY_ALIAS)"
+      - name: Apply native feature manifest permissions
+        script: |
+          set -euo pipefail
+          MANIFEST="$CM_BUILD_DIR/android-template/app/src/main/AndroidManifest.xml"
+          python3 - "$MANIFEST" <<'PY'
+          import os, sys
+          manifest_path = sys.argv[1]
+          def enabled(name, default=False):
+              value = os.environ.get(name)
+              if value is None or value.strip() == "":
+                  return default
+              return value.strip().lower() == "true"
+          permissions = []
+          def add(name, attrs=""):
+              permissions.append(f'    <uses-permission android:name="{name}"{attrs} />')
+          if enabled("ENABLE_BILLING"):
+              add("com.android.vending.BILLING")
+          if enabled("ENABLE_VIBRATE", True):
+              add("android.permission.VIBRATE")
+          if enabled("ENABLE_CAMERA"):
+              add("android.permission.CAMERA")
+          if enabled("ENABLE_MICROPHONE"):
+              add("android.permission.RECORD_AUDIO")
+          if enabled("ENABLE_LOCATION") or enabled("ENABLE_GEOLOCATION"):
+              add("android.permission.ACCESS_FINE_LOCATION")
+              add("android.permission.ACCESS_COARSE_LOCATION")
+          if enabled("ENABLE_STORAGE"):
+              add("android.permission.READ_EXTERNAL_STORAGE", ' android:maxSdkVersion="32"')
+              add("android.permission.WRITE_EXTERNAL_STORAGE", ' android:maxSdkVersion="29"')
+              add("android.permission.READ_MEDIA_IMAGES")
+              add("android.permission.READ_MEDIA_VIDEO")
+              add("android.permission.READ_MEDIA_AUDIO")
+          if enabled("ENABLE_SMS"):
+              add("android.permission.SEND_SMS")
+              add("android.permission.RECEIVE_SMS")
+              add("android.permission.READ_SMS")
+          if enabled("ENABLE_CONTACTS"):
+              add("android.permission.READ_CONTACTS")
+              add("android.permission.WRITE_CONTACTS")
+          if enabled("ENABLE_PHONE_STATE"):
+              add("android.permission.READ_PHONE_STATE")
+              add("android.permission.CALL_PHONE")
+          if enabled("ENABLE_PUSH_NOTIFICATIONS"):
+              add("android.permission.POST_NOTIFICATIONS")
+          if enabled("ENABLE_BIOMETRIC"):
+              add("android.permission.USE_BIOMETRIC")
+              add("android.permission.USE_FINGERPRINT")
+          if enabled("ENABLE_BLUETOOTH"):
+              add("android.permission.BLUETOOTH", ' android:maxSdkVersion="30"')
+              add("android.permission.BLUETOOTH_ADMIN", ' android:maxSdkVersion="30"')
+              add("android.permission.BLUETOOTH_CONNECT")
+              add("android.permission.BLUETOOTH_SCAN")
+          if enabled("ENABLE_NFC"):
+              add("android.permission.NFC")
+          if enabled("ENABLE_CALENDAR"):
+              add("android.permission.READ_CALENDAR")
+              add("android.permission.WRITE_CALENDAR")
+          if enabled("KEEP_SCREEN_ON") or enabled("ENABLE_PUSH_NOTIFICATIONS"):
+              add("android.permission.WAKE_LOCK")
+          text = open(manifest_path, encoding="utf-8").read()
+          marker = "\n    <!-- Optional native permissions are inserted by codemagic.yaml only when enabled. -->"
+          block = marker + ("\n" + "\n".join(permissions) if permissions else "")
+          if marker not in text:
+              raise SystemExit("Optional permission marker missing from AndroidManifest.xml")
+          text = text.replace(marker, block, 1)
+          open(manifest_path, "w", encoding="utf-8").write(text)
+          print("Enabled manifest permissions:")
+          print("\n".join(permissions) if permissions else "  none")
+          PY
       - name: Ensure Gradle wrapper exists
         working_directory: android-template
         script: |
