@@ -6,41 +6,53 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Conditionally meaningful — Android only requires the manifest entry to be PRESENT
-         for these to be requestable at runtime. They do not affect Play Store review unless
-         the app actively uses them. We declare them all and gate runtime requests via
-         BuildConfig flags inside MainActivity. -->
-    <uses-permission android:name="com.android.vending.BILLING" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Conditionally included via manifest placeholders set in app/build.gradle.
+         tools:node="merge" keeps the permission, tools:node="remove" strips it
+         from the final merged manifest so the AAB only declares what the user
+         actually enabled. Required for Play Console policy compliance. -->
+    <uses-permission android:name="com.android.vending.BILLING" tools:node="${billingNode}" />
+    <uses-permission android:name="android.permission.VIBRATE" tools:node="${vibrateNode}" />
+
+    <uses-permission android:name="android.permission.CAMERA" tools:node="${cameraNode}" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="${microphoneNode}" />
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="${locationNode}" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="${locationNode}" />
+
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-                     android:maxSdkVersion="32" />
+                     android:maxSdkVersion="32" tools:node="${storageNode}" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-                     android:maxSdkVersion="29" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <uses-permission android:name="android.permission.SEND_SMS" />
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
-    <uses-permission android:name="android.permission.READ_SMS" />
-    <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
-    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.NFC" />
-    <uses-permission android:name="android.permission.READ_CALENDAR" />
-    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
+                     android:maxSdkVersion="29" tools:node="${storageNode}" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="${mediaNode}" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="${mediaNode}" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" tools:node="${mediaNode}" />
+
+    <uses-permission android:name="android.permission.SEND_SMS" tools:node="${smsNode}" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" tools:node="${smsNode}" />
+    <uses-permission android:name="android.permission.READ_SMS" tools:node="${smsNode}" />
+
+    <uses-permission android:name="android.permission.READ_CONTACTS" tools:node="${contactsNode}" />
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" tools:node="${contactsNode}" />
+
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="${phoneNode}" />
+    <uses-permission android:name="android.permission.CALL_PHONE" tools:node="${phoneNode}" />
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:node="${pushNode}" />
+
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" tools:node="${biometricNode}" />
+    <uses-permission android:name="android.permission.USE_FINGERPRINT" tools:node="${biometricNode}" />
+
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" tools:node="${bluetoothNode}" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" tools:node="${bluetoothNode}" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="${bluetoothNode}" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" tools:node="${bluetoothNode}" />
+
+    <uses-permission android:name="android.permission.NFC" tools:node="${nfcNode}" />
+
+    <uses-permission android:name="android.permission.READ_CALENDAR" tools:node="${calendarNode}" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" tools:node="${calendarNode}" />
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="${wakeLockNode}" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
